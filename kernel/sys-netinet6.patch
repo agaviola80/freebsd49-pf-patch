@@ -1,0 +1,171 @@
+diff -Nur /usr/src/sys.orig/netinet6/in6_ifattach.c /usr/src/sys/netinet6/in6_ifattach.c
+--- /usr/src/sys.orig/netinet6/in6_ifattach.c	Sun Apr 28 13:40:26 2002
++++ /usr/src/sys/netinet6/in6_ifattach.c	Sun Jul  6 23:55:03 2025
+@@ -745,8 +745,9 @@
+ 	switch (ifp->if_type) {
+ #ifdef IFT_BRIDGE	/*OpenBSD 2.8*/
+ 	case IFT_BRIDGE:
+-		return;
+ #endif
++	case IFT_PFLOG:
++		return;
+ 	}
+ 
+ 	/*
+diff -Nur /usr/src/sys.orig/netinet6/ip6_forward.c /usr/src/sys/netinet6/ip6_forward.c
+--- /usr/src/sys.orig/netinet6/ip6_forward.c	Fri Jan 24 13:11:35 2003
++++ /usr/src/sys/netinet6/ip6_forward.c	Thu Jul 10 23:37:52 2025
+@@ -35,6 +35,10 @@
+ #include "opt_inet6.h"
+ #include "opt_ipsec.h"
+ 
++#ifndef NPF
++#include "pf.h"
++#endif
++
+ #include <sys/param.h>
+ #include <sys/systm.h>
+ #include <sys/malloc.h>
+@@ -63,6 +67,10 @@
+ 
+ #include <netinet/in_pcb.h>
+ 
++#if NPF > 0
++#include <net/pfvar.h>
++#endif
++
+ #ifdef IPSEC
+ #include <netinet6/ipsec.h>
+ #ifdef INET6
+@@ -107,7 +115,7 @@
+ 	struct ip6_hdr *ip6 = mtod(m, struct ip6_hdr *);
+ 	struct sockaddr_in6 *dst;
+ 	struct rtentry *rt;
+-	int error, type = 0, code = 0;
++	int error = 0, type = 0, code = 0;
+ 	struct mbuf *mcopy = NULL;
+ 	struct ifnet *origifp;	/* maybe unnecessary */
+ #ifdef IPSEC
+@@ -530,6 +538,20 @@
+ 		ip6 = mtod(m, struct ip6_hdr *);
+ 	}
+ 
++#if NPF > 0
++	/*
++	 * Packet filter
++	 */
++	if (pf_test6(PF_OUT, rt->rt_ifp, &m) != PF_PASS) {
++		m_freem(m);
++		goto senderr;
++	}
++	if (m == NULL)
++		goto senderr;
++
++	ip6 = mtod(m, struct ip6_hdr *);
++#endif
++
+ 	error = nd6_output(rt->rt_ifp, origifp, m, dst, rt);
+ 	if (error) {
+ 		in6_ifstat_inc(rt->rt_ifp, ifs6_out_discard);
+@@ -544,6 +566,10 @@
+ 				goto freecopy;
+ 		}
+ 	}
++
++#if NPF > 0
++senderr:
++#endif
+ 	if (mcopy == NULL)
+ 		return;
+ 	switch (error) {
+diff -Nur /usr/src/sys.orig/netinet6/ip6_input.c /usr/src/sys/netinet6/ip6_input.c
+--- /usr/src/sys.orig/netinet6/ip6_input.c	Fri Jan 24 13:11:35 2003
++++ /usr/src/sys/netinet6/ip6_input.c	Thu Jul 10 23:36:24 2025
+@@ -70,6 +70,10 @@
+ #include "opt_inet6.h"
+ #include "opt_ipsec.h"
+ 
++#ifndef NPF
++#include "pf.h"
++#endif
++
+ #include <sys/param.h>
+ #include <sys/systm.h>
+ #include <sys/malloc.h>
+@@ -126,6 +130,10 @@
+ /* we need it for NLOOP. */
+ #include "loop.h"
+ 
++#if NPF > 0
++#include <net/pfvar.h>
++#endif
++
+ #include <net/net_osdep.h>
+ 
+ extern int (*fr_checkp) __P((struct ip *, int, struct ifnet *, int, struct mbuf **));
+@@ -353,6 +361,18 @@
+ 		in6_ifstat_inc(m->m_pkthdr.rcvif, ifs6_in_hdrerr);
+ 		goto bad;
+ 	}
++
++#if NPF > 0 
++	/*
++	 * Packet filter
++	 */
++	if (pf_test6(PF_IN, m->m_pkthdr.rcvif, &m) != PF_PASS)
++		goto bad;
++	if (m == NULL)
++		return;
++
++	ip6 = mtod(m, struct ip6_hdr *);
++#endif
+ 
+ 	/*
+ 	 * Check if we want to allow this packet to be processed.
+diff -Nur /usr/src/sys.orig/netinet6/ip6_output.c /usr/src/sys/netinet6/ip6_output.c
+--- /usr/src/sys.orig/netinet6/ip6_output.c	Fri Jan 24 13:11:35 2003
++++ /usr/src/sys/netinet6/ip6_output.c	Thu Jul 10 23:37:28 2025
+@@ -70,6 +70,10 @@
+ #include "opt_inet6.h"
+ #include "opt_ipsec.h"
+ 
++#ifndef NPF
++#include "pf.h"
++#endif
++
+ #include <sys/param.h>
+ #include <sys/malloc.h>
+ #include <sys/mbuf.h>
+@@ -93,6 +97,10 @@
+ #include <netinet/in_pcb.h>
+ #include <netinet6/nd6.h>
+ 
++#if NPF > 0
++#include <net/pfvar.h>
++#endif
++
+ #ifdef IPSEC
+ #include <netinet6/ipsec.h>
+ #ifdef INET6
+@@ -918,6 +926,21 @@
+ 		m->m_flags &= ~M_LOOP; /* XXX */
+ 		m->m_pkthdr.rcvif = NULL;
+ 	}
++
++#if NPF > 0
++	/*
++	 * Packet filter
++	 */
++	if (pf_test6(PF_OUT, ifp, &m) != PF_PASS) {
++		error = EHOSTUNREACH;
++		m_freem(m);
++		goto done;
++	}
++	if (m == NULL)
++		goto done;
++
++	ip6 = mtod(m, struct ip6_hdr *);
++#endif
+ 
+ 	/*
+ 	 * Check if we want to allow this packet to be processed.

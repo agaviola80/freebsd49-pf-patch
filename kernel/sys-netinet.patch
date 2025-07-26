@@ -1,0 +1,101 @@
+diff -Nur /usr/src/sys.orig/netinet/ip_input.c /usr/src/sys/netinet/ip_input.c
+--- /usr/src/sys.orig/netinet/ip_input.c	Tue Oct  7 02:25:59 2003
++++ /usr/src/sys/netinet/ip_input.c	Thu Jul 10 23:27:17 2025
+@@ -44,6 +44,12 @@
+ #include "opt_ipstealth.h"
+ #include "opt_ipsec.h"
+ #include "opt_random_ip_id.h"
++#include "opt_inet.h"
++#include "opt_inet6.h"
++
++#ifndef NPF
++#include "pf.h"
++#endif
+ 
+ #include <sys/param.h>
+ #include <sys/systm.h>
+@@ -81,6 +87,10 @@
+ #include <netinet/ip_fw.h>
+ #include <netinet/ip_dummynet.h>
+ 
++#if NPF > 0
++#include <net/pfvar.h>
++#endif
++
+ #ifdef IPSEC
+ #include <netinet6/ipsec.h>
+ #include <netkey/key.h>
+@@ -456,6 +466,20 @@
+ 	 * Check if we want to allow this packet to be processed.
+ 	 * Consider it to be bad if not.
+ 	 */
++
++#if NPF > 0
++	/*
++	 * Packet filter
++	 */
++	if (pf_test(PF_IN, m->m_pkthdr.rcvif, &m) != PF_PASS)
++		goto bad; 
++	if (m == NULL)
++		return;
++
++	ip = mtod(m, struct ip *);
++	hlen = IP_VHL_HL(ip->ip_vhl) << 2;
++#endif
++
+ 	if (fr_checkp) {
+ 		struct	mbuf	*m1 = m;
+ 
+diff -Nur /usr/src/sys.orig/netinet/ip_output.c /usr/src/sys/netinet/ip_output.c
+--- /usr/src/sys.orig/netinet/ip_output.c	Sat Sep 13 13:52:47 2003
++++ /usr/src/sys/netinet/ip_output.c	Thu Jul 10 23:27:36 2025
+@@ -43,6 +43,12 @@
+ #include "opt_ipsec.h"
+ #include "opt_random_ip_id.h"
+ #include "opt_mbuf_stress_test.h"
++#include "opt_inet.h"
++#include "opt_inet6.h"
++
++#ifndef NPF
++#include "pf.h"
++#endif
+ 
+ #include <sys/param.h>
+ #include <sys/systm.h>
+@@ -67,6 +73,10 @@
+ 
+ #include <machine/in_cksum.h>
+ 
++#if NPF > 0
++#include <net/pfvar.h>
++#endif
++
+ static MALLOC_DEFINE(M_IPMOPTS, "ip_moptions", "internet multicast options");
+ 
+ #ifdef IPSEC
+@@ -980,6 +990,25 @@
+ 		sw_csum &= ~CSUM_DELAY_DATA;
+ 	}
+ 	m->m_pkthdr.csum_flags &= ifp->if_hwassist;
++
++#if NPF > 0
++        /*
++         * Packet filter
++         */
++	m->m_pkthdr.csum_flags |= sw_csum;
++        if (pf_test(PF_OUT, ifp, &m) != PF_PASS) {
++                error = EHOSTUNREACH;
++                m_freem(m);
++                goto done;
++        }
++        if (m == NULL)
++                goto done;
++
++	m->m_pkthdr.csum_flags &= ifp->if_hwassist;
++
++	ip = mtod(m, struct ip *);
++	hlen = IP_VHL_HL(ip->ip_vhl) << 2;
++#endif
+ 
+ 	/*
+ 	 * If small enough for interface, or the interface will take
