@@ -1,1 +1,14 @@
-
+diff -Nur /usr/src/sys.orig/conf/files /usr/src/sys/conf/files
+--- /usr/src/sys.orig/conf/files	Sat Aug 23 04:52:47 2003
++++ /usr/src/sys/conf/files	Tue Jul  8 08:37:52 2025
+@@ -900,6 +900,10 @@
+ net/if_tap.c		optional tap
+ net/if_vlan.c		optional vlan
+ net/net_osdep.c		standard
++net/pf.c		optional pf 
++net/pf_ioctl.c		optional pf 
++net/pf_norm.c		optional pf 
++net/if_pflog.c		optional pflog 
+ net/ppp_deflate.c	optional ppp_deflate
+ net/ppp_tty.c		optional ppp
+ net/intrq.c		standard
