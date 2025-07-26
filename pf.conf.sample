@@ -1,0 +1,90 @@
+#
+# Copyright (C) 2025 Archimedes Gaviola <archimedes.gaviola@gmail.com>
+#
+# Permission to use, copy, modify, and/or distribute this software for
+# any purpose with or without fee is hereby granted.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+# WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE
+# FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY
+# DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+# AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+# OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+
+#
+# Sample pf configuration: NAT behind NAT network setup
+#
+#                       LTE, WiFi, DHCP,
+#                         NAT gateway,      External LAN
+#                          DNS proxy      (192.168.1.0/24)
+#                random  +-----------+                      +-------------+
+#              public IP |  SmartBro |192.168.1.1           | FreeBSD 4.9 |
+#  Internet <----------->| Home WiFi |<-------------------->| pf firewall | 
+#                        |  router   |                 sis2 | NAT gateway |
+#                        +-----------+        192.168.1.226 +-------------+
+#                                                                  ^ sis1
+#                                                                  | 192.168.100.226
+#                                                                  |
+#                                                                  | 
+#                                                            Internal LAN
+#                                                         (192.168.100.0/24)
+#
+
+# pf firewall macros
+ext_if = "sis2"
+int_if = "sis1"
+ext_ip = "192.168.1.226"
+int_ip = "192.168.100.226"
+
+# networks and servers
+ext_net = "{192.168.1.0/24}"
+int_net = "{192.168.100.0/24}"
+ext_int_net = "{192.168.1.0/24, 192.168.100.0/24}"
+dns_proxy = "192.168.1.1"
+
+# options
+set loginterface $int_if
+
+# normalization
+scrub in all
+
+# nat/rdr
+nat on $ext_if inet from any to any -> ($ext_if)
+
+# filter rules
+block in log all
+
+# allow icmp from internal network to the internet via fw internal interface
+pass in on $int_if proto icmp from $int_net to any keep state
+
+# allow icmp echo reply from the internet via fw internal interface
+pass in on { $int_if, $ext_if } proto icmp from any to $int_net keep state
+
+# allow icmp echo reply from internal network to fw internal and external ips via fw internal interface
+pass in on $int_if proto icmp from $int_net to { $int_ip, $ext_ip } keep state
+
+# allow icmp echo reply from internal network to dns server via fw internal interface
+pass in on $int_if proto icmp from $int_net to $dns_server keep state
+
+# allow external dns proxy from external and internal fw interfaces and networks
+pass in on { $ext_if, $int_if } proto udp from $ext_int_net to $dns_proxy port 53 keep state
+
+# allow ssh from internal network to fw internal ip via fw internal interface 
+pass in on $int_if proto tcp from $int_net to $int_ip port 22 flags S/SA keep state
+
+# allow ssh from internal network to external network via fw internal interface
+pass in on $int_if proto tcp from $int_net to $ext_net port ssh flags S/SA keep state
+
+# allow http/https from internal network to the internet via fw internal interface
+pass in on $int_if proto tcp from $int_net to any port { 80, 443 } keep state
+
+# allow https from the internet to fw external interface via fw external interface
+pass in on $ext_if proto tcp from any port 443 to $ext_if keep state
+
+# allow google quic proto from internal network to the internet via fw internal interface
+pass in on $int_if proto udp from $int_net to any port 443 keep state
+
+# allow udp from internal network to the internet via fw internal interface
+pass in on $int_if proto udp from $int_net to any keep state
