@@ -1,0 +1,11 @@
+Porting OpenBSD pf to FreeBSD 4.9
+
+Packet filter or simply "pf" is a stateful firewall software that has
+been part of the OpenBSD project since OpenBSD 3.0 release.
+It was originally developed by Daniel Hartmeier (https://www.benzedrine.ch/kerneltrap.html).
+This version of pf were sourced from the OpenBSD 3.2 release, were it
+is capable of supporting network address translation (nat, binat and 
+redirection), packet filtering (IPv4 and IPv6), packet normalization
+and packet logging through pflog interface. Pf software is licensed under BSD.
+
+Though FreeBSD 4.9-RELEASE is long time outdated, pf is ported to have it supported.

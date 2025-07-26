@@ -1,0 +1,224 @@
+Prepare FreeBSD 4.9-RELEASE (i386) installation:
+------------------------------------------------
+
+Download the FreeBSD 4.9-RELEASE i386 architecture from the link below:
+http://ftp-archive.freebsd.org/pub/FreeBSD-Archive/old-releases/i386/ISO-IMAGES/4.9/4.9-i386-mini.iso
+
+Hardware specification requirements:
+------------------------------------
+- Intel or AMD-based single core CPU (266-MHz or more)
+- 128MB RAM or more
+- 2GB disk space (for GENERIC kernel) or more
+- 1x network interface card for a host node or 
+  2x network interface cards for a router node
+
+For reference see a list of supported hardware:
+https://www.freebsd.org/releases/4.9R/hardware-i386/
+
+Install the FreeBSD 4.9-RELEASE in a VirtualBox VM or any Intel/AMD i386 hardware
+with kernel and userland sources. Make sure to have the following sources below
+for the respective patches to be applied.
+
+sandisk# ls -la /usr/src
+total 10
+drwxr-xr-x   5 root  wheel   512 Jul 17 23:08 .
+drwxr-xr-x  15 root  wheel   512 Oct 28  2003 ..
+drwxr-xr-x  84 root  wheel  2048 Jul 17 22:59 sbin
+drwxr-xr-x  23 root  wheel   512 Jul 17 23:08 share
+drwxr-xr-x  49 root  wheel  1024 Jul 15 03:13 sys
+
+Prepare the pf patches
+---------------------- 
+# tar zxvf fbsd49-pf-patch.tar.gz
+# cd fbsd49-pf-patch
+# ls -lah
+total 62
+drwxr-xr-x   6 root  wheel   512B Jul 18 11:16 .
+drwxr-xr-x  17 root  wheel     1K Jul 18 00:41 ..
+-rw-r--r--   1 root  wheel     4K Jul 22 23:58 INSTALL
+-rw-r--r--   1 root  wheel   360B Jul 22 23:25 README
+drwxr-xr-x   2 root  wheel   512B Jul 18 00:41 kernel
+-rw-r--r--   1 root  wheel   911B Jul 18 01:38 pf.conf.sample
+drwxr-xr-x   2 root  wheel   512B Jul 18 00:41 userland
+drwxr-xr-x   2 root  wheel   512B Jul 18 00:46 utilities
+
+# cd kernel 
+# ls -lah
+total 274
+drwxr-xr-x  2 root  wheel    512B Jul 18 00:41 .
+drwxr-xr-x  6 root  wheel    512B Jul 18 11:16 ..
+-rw-r--r--  1 root  wheel    488B Jul 18 00:41 sys-conf.patch
+-rw-r--r--  1 root  wheel     10K Jul 18 00:41 sys-i386.patch
+-rw-r--r--  1 root  wheel    205K Jul 18 00:41 sys-net.patch
+-rw-r--r--  1 root  wheel      2K Jul 18 00:41 sys-netinet.patch
+-rw-r--r--  1 root  wheel      3K Jul 18 00:41 sys-netinet6.patch
+-rw-r--r--  1 root  wheel     23K Jul 18 00:41 sys-sys.patch
+
+# cd ../userland 
+# ls -lah 
+total 320
+drwxr-xr-x  2 root  wheel    512B Jul 16 01:37 .
+drwxr-xr-x  5 root  wheel    512B Jul 16 01:30 ..
+-rw-r--r--  1 root  wheel    625B Jul 15 11:26 dev-makedev.patch
+-rw-r--r--  1 root  wheel    187K Jul 11 17:16 sbin.patch
+-rw-r--r--  1 root  wheel     81K Jul 11 18:06 share-man.patch
+-rw-r--r--  1 root  wheel     42K Jul 16 00:12 usr-include.patch
+
+Apply the patches to the kernel:
+--------------------------------
+# cd /usr/src
+# patch -p0 < fbsd49-pf-patch/kernel/sys-net.patch
+# patch -p0 < fbsd49-pf-patch/kernel/sys-netinet.patch
+# patch -p0 < fbsd49-pf-patch/kernel/sys-netinet6.patch
+# patch -p0 < fbsd49-pf-patch/kernel/sys-sys.patch
+# patch -p0 < fbsd49-pf-patch/kernel/sys-i386.patch
+# patch -p0 < fbsd49-pf-patch/kernel/sys-conf.patch
+
+Apply the patches to the userland:
+----------------------------------
+# cd /usr/src
+# patch -p0 < fbsd49-pf-patch/userland/sbin.patch
+# patch -p0 < fbsd49-pf-patch/userland/share-man.patch
+
+# cd /usr/include
+# patch -p0 < fbsd49-pf-patch/userland/usr-include.patch
+
+# cd /dev
+# patch -p0 < fbsd49-pf-patch/userland/dev-makedev.patch
+
+Re-compile the kernel:
+----------------------
+# cd /usr/src/sys/i386/conf
+# config GENERIC_PF
+# cd ../../compile/GENERIC_PF
+# make depend && make && make install
+
+# reboot
+
+Wait until the system completely boots after reboot were you can see the login prompt.
+Once login, perform the following:
+
+# uname -a
+
+The uname command output is expected to have the GENERIC_PF as part of the output.
+ 
+# kldstat -v | grep pf
+
+The kldstat command output is expected to have "pf" and "if_pflog" modules included in the kernel.
+
+# ifconfig
+
+The ifconfig command is expected to show-up the pflog0 pseudo interface similar as shown below.
+
+pflog0: flags=0<> mtu 33216
+
+Install the pf userland utilities (pfctl, pflogd and authpf):
+-------------------------------------------------------------
+# cd /usr/src/sbin/pfctl
+# make && make install
+
+# cd /usr/src/sbin/pflogd
+# make && make install
+
+# cd /usr/src/sbin/authpf
+# make && make install
+# reboot
+
+Install the manpages:
+---------------------
+# cd /usr/src/share/man/man4
+# gzip -cn pf.4 > pf.4.gz
+# install -o root -g wheel -m 444 pf.4.gz /usr/share/man/man4
+# gzip -cn pflog.4 > pflog.4.gz
+# install -o root -g wheel -m 444 pflog.4.gz /usr/share/man/man4
+
+# cd /usr/src/share/man/man5
+# gzip -cn pf.conf.5 > pf.conf.5.gz
+# install -o root -g wheel -m 444 pf.conf.5.gz /usr/share/man/man5
+
+# cd /usr/src/share/man/man8
+# gzip -cn pfctl.8 > pfctl.8.gz
+# install -o root -g wheel -m 444 pfctl.8.gz /usr/share/man/man8
+# gzip -cn pflogd.8 > pflogd.8.gz
+# install -o root -g wheel -m 444 pflogd.8.gz /usr/share/man/man8
+
+Identify the type of node to setup (host or router)
+---------------------------------------------------
+
+# sysctl -a | grep forwarding
+net.inet.ip.forwarding: 1
+net.inet6.ip6.forwarding: 1
+
+Enable IPv4 or IPv6 forwarding when you setup a FreeBSD system that acts 
+as a router node otherwise leave it as is when system acts as a host node.
+A router must have at least two (2) network interface cards.
+
+# echo "net.inet.ip.forwarding=1" > /etc/sysctl.conf
+# echo "net.inet6.ip6.forwarding=1" >> /etc/sysctl.conf
+
+Install libpcap and tcpdump:
+----------------------------
+# ls -lah utilities/
+total 836
+drwxr-xr-x  2 root  wheel    512B Jul 18 00:46 .
+drwxr-xr-x  6 root  wheel    512B Jul 18 11:16 ..
+-rw-r--r--  1 root  wheel    276K Jul 18 00:46 libpcap-0.8.1.tar.gz
+-rw-r--r--  1 root  wheel    509K Jul 18 00:46 tcpdump-3.8.1-fbsd49.tar.gz
+
+# tar zxvf libpcap-0.8.1.tar.gz -C /home/freebsd
+# cd /home/freebsd
+# cd libpcap-0.8.1
+# ./configure && make && make install
+
+# tar zxvf tcpdump-3.8.1-fbsd49.tar.gz -C /home/freebsd
+# cd /home/freebsd
+# cd tcpdump-3.8.1-fbsd49
+# ./configure && make && make install
+
+Bring up the pflog0 interface and initiate logging:
+---------------------------------------------------
+# ifconfig pflog0
+pflog0: flags=0<> mtu 33216
+
+# ifconfig pflog0 up
+# ifconfig pflog
+pflog0: flags=41<UP,RUNNING> mtu 33216
+
+Verify incoming and outgoing packets of the pflog0 interface with tcpdump.
+
+# /usr/local/sbin/tcpdump -nettti pflog0
+
+Copy pf.conf.sample configuration file to /etc directory:
+---------------------------------------------------------
+# cd fbsd49-pf-patch
+# cp pf.conf.sample /etc/pf.conf
+
+The pf.conf.sample is a NAT behind NAT setup sample configuration file only 
+used as reference guide to provide idea on how to construct the pf rulesets.
+
+Modify the file accordingly based on your actual network setup and network 
+cards used:
+
+# vi /etc/pf.conf
+
+For information on pf configurations, see pf.conf(5).
+
+Start pf and load the pf.conf file:
+-----------------------------------
+# pfctl -e -f pf.conf 
+
+Check the interface status and show all rulesets:
+------------------------------------------------- 
+# pfctl -si
+# pfctl -sn
+# pfctl -sr
+# pfctl -ss
+# pfctl -sa
+
+For more pf control commands, see pfctl(8).
+
+Add a one line script below to enable pf during system startup:
+--------------------------------------------------------------- 
+# vi /etc/rc.local
+/sbin/pfctl -e -f /etc/pf.conf
+/sbin/ifconfig pflog0 up
