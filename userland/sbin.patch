@@ -1,0 +1,7314 @@
+diff -Nur /usr/src/sbin.orig/Makefile /usr/src/sbin/Makefile
+--- /usr/src/sbin.orig/Makefile	Thu Aug  8 17:03:46 2002
++++ /usr/src/sbin/Makefile	Fri Jul 11 08:21:01 2025
+@@ -6,6 +6,7 @@
+ SUBDIR=	adjkerntz \
+ 	atacontrol \
+ 	atm \
++	authpf \
+ 	badsect \
+ 	camcontrol \
+ 	ccdconfig \
+@@ -53,6 +54,8 @@
+ 	nfsiod \
+ 	nologin \
+ 	nos-tun \
++	pfctl \
++	pflogd \
+ 	ping \
+ 	ping6 \
+ 	quotacheck \
+diff -Nur /usr/src/sbin.orig/authpf/Makefile /usr/src/sbin/authpf/Makefile
+--- /usr/src/sbin.orig/authpf/Makefile	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/authpf/Makefile	Fri Jul 11 17:03:18 2025
+@@ -0,0 +1,13 @@
++#	$OpenBSD: Makefile,v 1.6 2002/07/13 02:34:58 art Exp $
++
++PROG=	authpf
++MAN=	authpf.8
++BINOWN= root
++BINMODE= 6555
++SRCS=	authpf.c parse.y pfctl_parser.c pf_print_state.c
++CFLAGS+= -I${.CURDIR}/../../sbin/pfctl -Wall -Werror
++.PATH:  ${.CURDIR}/../../sbin/pfctl
++
++CLEANFILES+=y.tab.h
++
++.include <bsd.prog.mk>
+diff -Nur /usr/src/sbin.orig/authpf/authpf.8 /usr/src/sbin/authpf/authpf.8
+--- /usr/src/sbin.orig/authpf/authpf.8	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/authpf/authpf.8	Fri Jul 11 07:51:41 2025
+@@ -0,0 +1,449 @@
++.\" $OpenBSD: authpf.8,v 1.17 2002/07/27 07:27:04 nordin Exp $
++.\"
++.\" Copyright (c) 2002 Bob Beck (beck@openbsd.org>.  All rights reserved.
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\" 1. Redistributions of source code must retain the above copyright
++.\"    notice, this list of conditions and the following disclaimer.
++.\" 2. Redistributions in binary form must reproduce the above copyright
++.\"    notice, this list of conditions and the following disclaimer in the
++.\"    documentation and/or other materials provided with the distribution.
++.\" 3. The name of the author may not be used to endorse or promote products
++.\"    derived from this software without specific prior written permission.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++.\" IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++.\" OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++.\" IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++.\" NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++.\" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++.\" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++.\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++.\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++.\"
++.Dd Jan 10, 2002
++.Dt AUTHPF 8
++.Os
++.Sh NAME
++.Nm authpf
++.Nd authenticating gateway user shell
++.Sh SYNOPSIS
++.Nm authpf
++.Sh DESCRIPTION
++.Nm
++is used as a user shell for authenticating gateways.
++It is used to change
++.Xr pf 4
++rules when a user authenticates and starts a session with
++.Xr sshd 8
++and to then undo the changes when the user's session exits.
++It is designed for changing filter and translation rules for an individual
++source IP address as long as a user maintains an active
++.Xr ssh 1
++session.
++Typical use would be for a gateway that authenticates users before
++allowing them Internet use, or a gateway that allows different users into
++different places.
++.Nm
++logs the successful start and end of a session to
++.Xr syslog 8 .
++This, combined with properly set up filter rules and secure switches
++can be used to ensure users are held accountable for their network traffic.
++.Pp
++.Nm
++can add filter and translation rules using the syntax described in
++.Xr pf.conf 5 .
++.Nm
++requires that the
++.Xr pf 4
++system be enabled before use.
++.Pp
++.Nm
++is meant to be used with users who can connect via
++.Xr ssh 1
++only.
++On startup,
++.Nm
++retrieves the client's connecting IP address via the
++.Ev SSH_CLIENT
++environment variable, and after performing additional access checks,
++a template file is read to determine what filter and translation (if
++any) rules to add.
++On session exit the same rules that were added at startup are removed.
++By default, filter rules are added at the end of the active
++.Xr pf 4
++filter list, and translation rules are added at the start of the active
++.Xr pf 4
++nat and rdr lists.
++.Sh FILTER AND TRANSLATION RULES
++Filter and translation rules for
++.Nm
++use the same format described in
++.Xr pf.conf 5 .
++The only difference is that these rules may (and probably should) use
++the macro
++.Em user_ip
++which is defined to the connecting ip address whenever
++.Nm
++is run.
++.Pp
++Filter and nat rules will be searched for first in
++.Pa /etc/authpf/users/$USER/
++and then in
++.Pa /etc/authpf/ .
++Per-user rules from the
++.Pa /etc/authpf/users/$USER/
++directory are intended to be used when non-default rules
++are needed on an individual user basis.
++It is important to ensure that a user can not write or change
++these configuration files in this case.
++.Pp
++Filter and translation rules are loaded from the file
++.Pa /etc/authpf/users/$USER/authpf.rules .
++If this file does not exist the file
++.Pa /etc/authpf/authpf.rules
++is used.
++The
++.Pa authpf.rules
++file must exist in one of the above locations for
++.Nm
++to run.
++.Pp
++Translation rules are also loaded from this file.
++The use of translation rules in an
++.Pa authpf.rules
++file is optional.
++.Sh CONFIGURATION
++Options are controlled by the
++.Pa /etc/authpf/authpf.conf
++file.
++This file is required to be present and readable for
++.Nm
++to run.
++It may be empty if the default behavior does not need to be changed.
++The file consists of pairs of the form
++.Li name=value
++one per line.
++Currently, the allowed values are as follows:
++.Bl -tag -width Ds
++.It rule_action=[head|tail]
++controls where filter rules are added, the default behavior is "tail"
++meaning filter rules are added to the end of the active filter list.
++.It Dv nat_action=[head|tail]
++controls where nat rules are added, the default behavior is "head"
++meaning filter rules are added to the start of the active nat list.
++.It Dv rdr_action=[head|tail]
++controls where rdr rules are added, the default behavior is "head"
++meaning filter rules are added to the start of the active rdr list.
++.El
++.Sh USER MESSAGES
++On successful invocation,
++.Nm
++displays a message telling the user he or she has been authenticated.
++It will additionally display the contents of the file
++.Pa /etc/authpf/authpf.message
++if the file exists and is readable.
++.Pp
++There exist two methods for providing additional granularity to the control
++offered by
++.Nm
++- it is possible to set the gateway to explicitly allow users who have
++authenticated to
++.Xr ssh 1
++and deny access to only a few troublesome individuals.
++This is done by creating a file with the banned user's login name in
++.Pa /etc/authpf/banned .
++The contents of this file will be displayed to a banned user, thus providing
++a method for informing the user that they have been banned, and where they can
++go and how to get there if they want to have their service restored.
++This is the default behaviour.
++.Pp
++It is also possible to configure
++.Nm
++to only allow specific users access.
++This is done by listing their login names, one per line, in
++.Pa /etc/authpf/authpf.allow .
++If "*" is found on a line, then all usernames match.
++If
++.Nm
++is unable to verify the user's permission to use the gateway, it will
++print a brief message and die.
++It should be noted that a ban takes precedence over an allow.
++.Pp
++On failure, messages will be logged to
++.Xr syslog 8
++for the system administrator.
++The user does not see these, but will be told the system is unavailable due to
++technical difficulties.
++The contents of the file
++.Pa /etc/authpf/authpf.problem
++will also be displayed if the file exists and is readable.
++.Sh CONFIGURATION ISSUES
++.Nm
++maintains the changed filter rules as long as the user maintains an
++active session.
++It is important to remember however, that the existence
++of this session means the user is authenticated.
++Because of this, it is important to both configure
++.Xr sshd 8
++to ensure the security of the session, and to ensure that the network
++by which users connect to use.
++.Xr sshd 8
++should be configured to use the
++.Dv ClientAliveInterval
++and
++.Dv ClientAliveCountMax
++parameters to ensure than an ssh session is terminated quickly if
++it becomes unresponsive, or if arp or address spoofing is used to
++hijack the session.
++Note that TCP keepalives are not sufficient for
++this, since they are not secure.
++.Pp
++.Nm
++will remove state table entries that were created during a user's
++session.
++This ensures that there will be no unauthenticated traffic
++allowed to pass after the controlling
++.Xr ssh 1
++session has been closed.
++.Pp
++.Nm
++is designed for gateway machines which don't typically have regular
++(non-administrative) users using the machine.
++An administrator must remember that
++.Nm
++can be used to modify the filter rules through the environment in
++which it is run, and as such could be used to modify the filter rules
++(based on the contents of the configuration files) by regular
++users.
++In the case where a machine has regular users using it, as well
++as users with
++.Nm
++as their shell, the regular users should be prevented from running
++.Nm
++by using the
++.Pa /etc/authpf/authpf.allow
++or
++.Pa /etc/authpf/banned/
++facilities.
++.Pp
++.Nm
++modifies the packet filter and address translation rules, and because
++of this it needs to be configured carefully.
++.Nm
++will not run and will exit silently if the
++.Pa /etc/authpf/authpf.conf
++file does not exist.
++After considering the effect
++.Nm
++may have on the main packet filter rules, the system administrator may
++enable
++.Nm
++by creating an appropriate
++.Pa /etc/authpf/authpf.conf
++file.
++.Sh EXAMPLES
++\fBControl Files\fP - To illustrate the user-specific access control
++mechanisms, let us consider a typical user named bob.
++Normally, as long as bob can authenticate himself, the
++.Nm
++program will load the appropriate rules.
++Enter the
++.Pa /etc/authpf/banned/
++directory.
++If bob has somehow fallen from grace in the eyes of the
++powers-that-be, they can prohibit him from using the gateway by creating
++the file
++.Pa /etc/authpf/banned/bob
++containing a message about why he has been banned from using the network.
++Once bob has done suitable penance, his access may be restored by moving or
++removing the file
++.Pa /etc/authpf/banned/bob.
++.Pp
++Now consider a workgroup containing alice, bob, carol and dave.
++They have a
++wireless network which they would like to protect from unauthorized use. To
++accomplish this, they create the file
++.Pa /etc/authpf/authpf.allow
++which lists their login ids, one per line.
++At this point, even if eve could authenticate to
++.Xr sshd 8 ,
++she would not be allowed to use the gateway.
++Adding and removing users from
++the work group is a simple matter of maintaining a list of allowed userids.
++If bob once again manages to annoy the powers-that-be, they can ban him from
++using the gateway by creating the familiar
++.Pa /etc/authpf/banned/bob
++file.
++Though bob is listed in the allow file, he is prevented from using
++this gateway due to the existence of a ban file.
++.Pp
++\fBDistributed Authentication\fP - It is often desirable to interface with a
++distributed password system rather than forcing the sysadmins to keep a large
++number of local password files in sync.
++The
++.Xr login.conf 5
++mechanism in
++.Ox
++can be used to fork the right shell.
++To make that happen,
++.Xr login.conf 5
++should have entries that look something like this:
++.Bd -literal
++shell-default:shell=/bin/csh
++
++default:\\
++	...
++	:shell=/usr/sbin/authpf
++
++daemon:\\
++	...
++	:shell=/bin/csh:\\
++	:tc=default:
++
++staff:\\
++	...
++	:shell=/bin/csh:\\
++	:tc=default:
++.Ed
++.Pp
++Using a default password file, all users will get
++.Nm
++as their shell except for root who will get
++.Pa /bin/csh.
++.Pp
++\fBSSH Configuration\fP - As stated earlier,
++.Xr sshd 8
++must be properly configured to detect and defeat network attacks.
++To that end, the following options should be added to
++.Pa sshd_config :
++.Bd -literal
++ClientAliveInterval 15
++ClientAliveCountMax 3
++.Ed
++.Pp
++This ensures that unresponsive or spoofed session are terminated in under a
++minute, since a hijacker should not be able to spoof ssh keepalive messages.
++.Pp
++.Pp
++\fBBanners\fP - Once authenticated, the user is shown the contents of
++.Pa /etc/authpf/authpf.message.
++This message may be a screen-full of the appropriate use policy, the contents
++of
++.Pa /etc/motd
++or something as simple as the following:
++.Bd -literal
++    This means you will be held accountable by the powers that be
++    for traffic originating from your machine, so please play nice.
++.Ed
++.Pp
++To tell the user where to go when the system is broken,
++.Pa /etc/authpf/authpf.problem
++could contain something like this:
++.Bd -literal
++    Sorry, there appears to be some system problem. To report this
++    problem so we can fix it, please phone 1-900-314-1597 or send
++    an email to remove@bulkmailerz.net.
++.Ed
++.Pp
++\fBPacket Filter Rules\fP - In areas where this gateway is used to protect a
++wireless network (a hub with several hundred ports) the default rule set as
++well as the per-user rules should probably allow very few things beyond
++encrypted protocols like
++.Xr ssh 1 ,
++.Xr ssl 8 ,
++or
++.Xr ipsec 4 .
++On a securely switched network, with plug-in jacks for visitors who are
++given authentication accounts, you might want to allow out everything.
++In this context, a secure switch is one that tries to prevent address table
++overflow attacks.
++The examples below assume a switched wired net.
++.Pp
++Example
++.Pa /etc/pf.conf :
++.Bd -literal
++# by default we allow internal clients to talk to us using
++# ssh and use us as a dns server.
++internal_if="fxp1"
++gateway_addr="10.0.1.1"
++block in on $internal_if from any to any
++pass in quick on $internal_if proto tcp from any to $gateway_addr/32 \\
++ port = ssh
++pass in quick on $internal_if proto udp from any to $gateway_addr/32 \\
++ port = domain
++.Ed
++.Pp
++Example
++.Pa /etc/authpf/authpf.rules :
++.Bd -literal
++# no real restrictions here, basically turn the network jack off or on.
++
++external_if = "xl0"
++internal_if = "fxp0"
++
++pass in log quick on $internal_if proto tcp from $user_ip/32 to any \\
++ keep state
++pass in quick on $internal_if from $user_ip/32 to any
++.Ed
++.Pp
++Example
++.Pa /etc/authpf/authpf.nat :
++.Bd -literal
++# When the user authenticates, rdr ftp for proxying by ftp-proxy(8)
++internal_if="fxp1"
++rdr on $internal_if proto tcp from $user_ip/32 to any port 21 \\
++ -> 127.0.0.1 port 8081
++.Ed
++.Pp
++Another example
++.Pa /etc/authpf/authpf.rules
++for an insecure network (such as a public wireless network) where
++we might need to be a bit more restrictive.
++.Bd -literal
++internal_if="fxp1"
++ipsec_gw="10.2.3.4"
++# allow out ftp, ssh, www and https only, and allow user to negotiate
++# ipsec with the ipsec server.
++pass in log quick on $internal_if proto tcp from $user_ip/32 to any \\
++ port { 21, 22, 80, 443 } flags S/SA
++pass in quick on $internal_if proto tcp from $user_ip/32 to any \\
++ port { 21, 22, 80, 443 }
++pass in quick proto udp from $user_ip/32 to $ipsec_gw/32 port = isakmp \\
++ keep state
++pass in quick proto esp from $user_ip/32 to $ipsec_gw/32
++.Ed
++.Sh FILES
++.Bl -tag -width "/etc/authpf/authpf.conf" -compact
++.It Pa /etc/authpf/authpf.conf
++.It Pa /etc/authpf/authpf.allow
++.It Pa /etc/authpf/authpf.rules
++.It Pa /etc/authpf/authpf.nat
++.It Pa /etc/authpf/authpf.message
++.It Pa /etc/authpf/authpf.problem
++.El
++.Sh SEE ALSO
++.Xr pf 4 ,
++.Xr pf.conf 5 ,
++.Xr ftp-proxy 8
++.Sh BUGS
++.Nm
++does not support binat translation rules.
++.Pp
++Configuration issues are tricky.
++The authenticating
++.Xr ssh 1
++connection may be secured, but if the network is not secured the user may
++expose insecure protocols to attackers on the same network, or enable other
++attackers on network to pretend to be the user by spoofing their IP address.
++.Pp
++.Nm
++is not designed to prevent users from denying service to other users.
++.Sh HISTORY
++The
++.Nm
++program first appeared in
++.Ox 3.1 .
+diff -Nur /usr/src/sbin.orig/authpf/authpf.c /usr/src/sbin/authpf/authpf.c
+--- /usr/src/sbin.orig/authpf/authpf.c	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/authpf/authpf.c	Fri Jul 11 08:35:36 2025
+@@ -0,0 +1,837 @@
++/*	$OpenBSD: authpf.c,v 1.23 2002/06/25 08:14:38 henning Exp $	*/
++
++/*
++ * Copyright (C) 1998 - 2002 Bob Beck (beck@openbsd.org).
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. Neither the name of the author nor the names of contributors
++ *    may be used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ */
++
++#include <sys/types.h>
++#include <sys/file.h>
++#include <sys/ioctl.h>
++#include <sys/socket.h>
++#include <sys/stat.h>
++#include <sys/time.h>
++
++#include <net/if.h>
++#include <netinet/in.h>
++#include <net/pfvar.h>
++#include <netinet/in_systm.h>
++#include <netinet/ip.h>
++#include <arpa/inet.h>
++#include <arpa/nameser.h>
++
++#include <err.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <libgen.h>
++#include <login_cap.h>
++#include <netdb.h>
++#include <pwd.h>
++#include <signal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <stddef.h>
++#include <string.h>
++#include <strings.h>
++#include <syslog.h>
++#include <unistd.h>
++#include <resolv.h>
++
++#include <pfctl_parser.h>
++
++#include "pathnames.h"
++
++int Rule_Action = PF_CHANGE_ADD_TAIL;
++int Nat_Action = PF_CHANGE_ADD_HEAD;
++int Rdr_Action = PF_CHANGE_ADD_HEAD;
++int dev;			/* pf device */
++int Delete_Rules;		/* for parse_rules callbacks */
++
++FILE *pidfp;
++char *infile;			/* infile name needed by parse_[rules|nat] */
++char luser[MAXLOGNAME];		/* username */
++char ipsrc[256];		/* ip as a string */
++char pidfile[MAXPATHLEN];	/* we save pid in this file. */
++
++struct timeval Tstart, Tend;	/* start and end times of session */
++
++int	pfctl_add_rule(struct pfctl *, struct pf_rule *);
++int	pfctl_add_nat(struct pfctl *, struct pf_nat *);
++int	pfctl_add_rdr(struct pfctl *, struct pf_rdr *);
++int	pfctl_add_binat(struct pfctl *, struct pf_binat *);
++
++static int	read_config(FILE *);
++static void	print_message(char *);
++static int	allowed_luser(char *);
++static int	check_luser(char *, char *);
++static int	changefilter(int, char *, char *);
++static void	authpf_kill_states(void);
++
++volatile sig_atomic_t want_death;
++static void	need_death(int signo);
++static void do_death(int);
++
++/*
++ * User shell for authenticating gateways. sole purpose is to allow
++ * a user to ssh to a gateway, and have the gateway modify packet
++ * filters to allow access, then remove access when the user finishes
++ * up. Meant to be used only from ssh(1) connections.
++ */
++int
++main(int argc, char *argv[])
++{
++	int lockcnt = 0, pidfd;
++	FILE *config;
++	struct in_addr ina;
++	struct passwd *pw;
++	char *cp;
++	uid_t uid;
++
++	config = fopen(PATH_CONFFILE, "r");
++	if (config == NULL)
++		exit(1);
++
++	if ((cp = getenv("SSH_CLIENT")) == NULL) {
++		syslog(LOG_ERR, "Can't determine connection source");
++		exit(1);
++	}
++
++	strlcpy(ipsrc, cp, sizeof(ipsrc));
++	cp = strchr(ipsrc, ' ');
++	if (!cp) {
++		syslog(LOG_ERR, "Corrupt SSH_CLIENT variable %s", ipsrc);
++		exit(1);
++	}
++	*cp = '\0';
++	if (inet_pton(AF_INET, ipsrc, &ina) != 1) {
++		syslog(LOG_ERR,
++		    "Cannot determine IP from SSH_CLIENT %s", ipsrc);
++		exit(1);
++	}
++
++	/* open the pf device */
++	dev = open(PATH_DEVFILE, O_RDWR);
++	if (dev == -1) {
++		syslog(LOG_ERR, "Can't open filter device (%m)");
++		goto die;
++	}
++
++	uid = getuid();
++	pw = getpwuid(uid);
++	if (pw == NULL) {
++		syslog(LOG_ERR, "can't find user for uid %u", uid);
++		goto die;
++	}
++	if (strcmp(pw->pw_shell, PATH_AUTHPF_SHELL)) {
++		syslog(LOG_ERR, "wrong shell for user %s, uid %u",
++		    pw->pw_name, pw->pw_uid);
++		goto die;
++	}
++
++	strlcpy(luser, pw->pw_name, sizeof(luser));
++
++        /* Make our entry in /var/run as /var/run/authpf-ipaddr */
++        snprintf(pidfile, sizeof pidfile, "%s/%s", PATH_PIDFILE, ipsrc);
++	
++	/*
++	 * If someone else is already using this ip, then this person
++	 * wants to switch users - so kill the old process and exit
++	 * as well.
++	 *
++	 * Note, we could print a message and tell them to log out, but the
++	 * usual case of this is that someone has left themselves logged in,
++	 * with the authenticated connection iconized and someone else walks
++	 * up to use and automatically logs in before using. If this just
++	 * gets rid of the old one silently, the new user never knows they
++	 * could have used someone else's old authentication. If we
++	 * tell them to log out before switching users it is an invitation
++	 * for abuse.
++	 */
++
++	do {
++		int save_errno, otherpid = -1;
++		char otherluser[33];
++
++		if ((pidfd = open(pidfile, O_RDWR|O_CREAT, 0644)) == -1 ||
++		    (pidfp = fdopen(pidfd, "r+")) == NULL) {
++			if (pidfd != -1)
++				close(pidfd);
++			syslog(LOG_ERR, "can't open or create %s: %s", pidfile,
++			    strerror(errno));
++			goto die;
++		}
++
++		if (flock(fileno(pidfp), LOCK_EX|LOCK_NB) == 0)
++			break;
++		save_errno = errno;
++		
++		/* Mark our pid, and username to our file. */   
++
++		rewind(pidfp);
++		if (fscanf(pidfp, "%d\n%32s\n", &otherpid, otherluser) != 2) 
++			otherpid = -1;
++		syslog(LOG_DEBUG,
++		    "Tried to lock %s, in use by pid %d: %s",
++		    pidfile, otherpid, strerror(save_errno));
++
++		if (otherpid > 0) {
++			syslog(LOG_INFO,
++			    "killing prior auth (pid %d) of %s by user %s",
++			    otherpid, ipsrc, otherluser);
++			if (kill((pid_t) otherpid, SIGTERM) == -1) {
++				syslog(LOG_INFO,
++				    "Couldn't kill process %d: (%m)",
++				    otherpid);
++			}
++		}
++
++		/*
++		 * we try to kill the previous process and acquire the lock
++		 * for 10 seconds, trying once a second. if we can't after
++		 * 10 attempts we log an error and give up
++		 */
++		if (++lockcnt > 10) {
++			syslog(LOG_ERR, "Can't kill previous authpf (pid %d)",
++			    otherpid);
++			goto dogdeath;
++		}
++		sleep(1);
++
++		/* re-open, and try again. The previous authpf process
++		 * we killed above should unlink the file and release
++		 * it's lock, giving us a chance to get it now
++		 */
++		fclose(pidfp);
++	} while (1);
++
++	/* revoke privs */
++	seteuid(getuid());
++	setuid(getuid());
++
++	if (!check_luser(PATH_BAN_DIR, luser) || !allowed_luser(luser))
++		do_death(0);
++
++	if (read_config(config))
++		do_death(0);
++
++	/* We appear to be making headway, so actually mark our pid */
++	rewind(pidfp);
++	fprintf(pidfp, "%ld\n%s\n", (long)getpid(), luser);
++	fflush(pidfp);
++	(void) ftruncate(fileno(pidfp), ftell(pidfp));
++
++	if (changefilter(1, luser, ipsrc) == -1) {
++		printf("Unable to modify filters\r\n");
++		do_death(1);
++	}
++
++	signal(SIGTERM, need_death);
++	signal(SIGINT, need_death);
++	signal(SIGALRM, need_death);
++	signal(SIGPIPE, need_death);
++	signal(SIGHUP, need_death);
++	signal(SIGSTOP, need_death);
++	signal(SIGTSTP, need_death);
++	while (1) {
++		printf("\r\nHello %s, ", luser);
++		printf("You are authenticated from host \"%s\"\r\n", ipsrc);
++		print_message(PATH_MESSAGE);
++		while (1) {
++			sleep(10);
++			if (want_death)
++				do_death(1);
++		}
++	}
++
++	/* NOTREACHED */
++dogdeath:
++	printf("\r\n\r\nSorry, this service is currently unavailable due to ");
++	printf("technical difficulties\r\n\r\n");
++	print_message(PATH_PROBLEM);
++	printf("\r\nYour authentication process (pid %d) was unable to run\n",
++	    getpid());
++	sleep(180); /* them lusers read reaaaaal slow */
++die:
++	do_death(0);
++
++	return (0);
++}
++
++/*
++ * reads config file in PATH_CONFFILE to set optional behaviours up
++ */
++static int
++read_config(FILE *f)
++{
++	char buf[1024];
++	int i = 0;
++
++	openlog("authpf", LOG_PID | LOG_NDELAY, LOG_DAEMON);
++
++	do {
++		char **ap, *pair[4], *cp, *tp;
++		int len;
++
++		if (fgets(buf, sizeof(buf), f) == NULL) {
++			fclose(f);
++			return (0);
++		}
++		i++;
++		len = strlen(buf);
++		if (buf[len - 1] != '\n' && !feof(f)) {
++			syslog(LOG_ERR, "line %d too long in %s", i,
++			    PATH_CONFFILE);
++			return (1);
++		}
++		buf[len - 1] = '\0';
++
++		for (cp = buf; *cp == ' ' || *cp == '\t'; cp++)
++			;
++
++		if (!*cp || *cp == '#' || *cp == '\n')
++			continue;
++
++		for (ap = pair; ap < &pair[3] &&
++		    (*ap = strsep(&cp, "=")) != NULL; ) {
++			if (**ap != '\0')
++				ap++;
++		}
++		if (ap != &pair[2])
++			goto parse_error;
++
++		tp = pair[1]+strlen(pair[1]);
++		while ((*tp == ' ' || *tp == '\t') && tp >= pair[1])
++			*tp-- = '\0';
++
++		if (strcasecmp(pair[0], "rule_action") == 0) {
++			if (strcasecmp(pair[1], "head") == 0)
++				Rule_Action = PF_CHANGE_ADD_HEAD;
++			else if (strcasecmp(pair[1], "tail") == 0)
++				Rule_Action = PF_CHANGE_ADD_TAIL;
++			else
++				goto parse_error;
++		} else if (strcasecmp(pair[0], "nat_action") == 0) {
++			if (strcasecmp(pair[1], "head") == 0)
++				Nat_Action = PF_CHANGE_ADD_HEAD;
++			else if (strcasecmp(pair[1], "tail") == 0)
++				Nat_Action = PF_CHANGE_ADD_TAIL;
++			else
++				goto parse_error;
++
++		} else if (strcasecmp(pair[0], "rdr_action") == 0)  {
++			if (strcasecmp(pair[1], "head") == 0)
++				Rdr_Action = PF_CHANGE_ADD_HEAD;
++			else if (strcasecmp(pair[1], "tail") == 0)
++				Rdr_Action = PF_CHANGE_ADD_TAIL;
++			else
++				goto parse_error;
++		}
++	} while (!feof(f) && !ferror(f));
++	fclose(f);
++	return (0);
++parse_error:
++	fclose(f);
++	syslog(LOG_ERR, "parse error, line %d of %s", i, PATH_CONFFILE);
++	return (1);
++}
++
++
++/*
++ * splatter a file to stdout - max line length of 1024,
++ * used for spitting message files at users to tell them
++ * they've been bad or we're unavailable.
++ */
++static void
++print_message(char *filename)
++{
++	char buf[1024];
++	FILE *f;
++
++	if ((f = fopen(filename, "r")) == NULL)
++		return; /* fail silently, we don't care if it isn't there */
++
++	do {
++		if (fgets(buf, sizeof(buf), f) == NULL) {
++			fflush(stdout);
++			fclose(f);
++			return;
++		}
++	} while (fputs(buf, stdout) != EOF && !feof(f));
++	fflush(stdout);
++	fclose(f);
++}
++
++/*
++ * allowed_luser checks to see if user "luser" is allowed to
++ * use this gateway by virtue of being listed in an allowed
++ * users file, namely /etc/authpf.allow .
++ *
++ * If /etc/authpf.allow does not exist, then we assume that
++ * all users who are allowed in by sshd(8) are permitted to
++ * use this gateway. If /etc/authpf.allow does exist, then a
++ * user must be listed if the connection is to continue, else
++ * the session terminates in the same manner as being banned.
++ */
++static int
++allowed_luser(char *luser)
++{
++	char *buf, *lbuf;
++	int matched;
++	size_t len;
++	FILE *f;
++
++	if ((f = fopen(PATH_ALLOWFILE, "r")) == NULL) {
++		if (errno == ENOENT) {
++			/*
++			 * allowfile doesn't exist, thus this gateway
++			 * isn't restricted to certain users...
++			 */
++			return(1);
++		}
++
++		/*
++		 * luser may in fact be allowed, but we can't open
++		 * the file even though it's there. probably a config
++		 * problem.
++		 */
++		syslog(LOG_ERR, "Can't open allowed users file %s (%s)",
++		    PATH_ALLOWFILE, strerror(errno));
++		return(0);
++	} else {
++		/*
++		 * /etc/authpf.allow exists, thus we do a linear
++		 * search to see if they are allowed.
++		 * also, if username "*" exists, then this is a
++		 * "public" gateway, such as it is, so let
++		 * everyone use it.
++		 */
++		lbuf = NULL;
++		while ((buf = fgetln(f, &len))) {
++			if (buf[len - 1] == '\n')
++				buf[len - 1] = '\0';
++			else {
++				if ((lbuf = (char *)malloc(len + 1)) == NULL)
++					err(1, NULL);
++				memcpy(lbuf, buf, len);
++				lbuf[len] = '\0';
++				buf = lbuf;
++			}
++
++			matched = strcmp(luser, buf) == 0 || strcmp("*", buf) == 0;
++
++			if (lbuf != NULL) {
++				free(lbuf);
++				lbuf = NULL;
++			}
++
++			if (matched)
++				return(1); /* matched an allowed username */
++		}
++		syslog(LOG_INFO, "Denied access to %s: not listed in %s",
++		    luser, PATH_ALLOWFILE);
++
++		/* reuse buf */
++		buf = "\n\nSorry, you aren't allowed to use this facility!\n";
++		fputs(buf, stdout);
++	}
++	fflush(stdout);
++	return(0);
++}
++
++/*
++ * check_luser checks to see if user "luser" has been banned
++ * from using us by virtue of having an file of the same name
++ * in the "luserdir" directory.
++ *
++ * If the user has been banned, we copy the contents of the file
++ * to the user's screen. (useful for telling the user what to
++ * do to get un-banned, or just to tell them they aren't
++ * going to be un-banned.)
++ */
++static int
++check_luser(char *luserdir, char *luser)
++{
++	char tmp[1024];
++	FILE *f;
++
++	if (snprintf(tmp, sizeof(tmp), "%s/%s", luserdir, luser) >=
++	    sizeof(tmp)) {
++		syslog(LOG_ERR, "Provided banned directory line too long (%s)",
++		    luserdir);
++		return(0);
++	}
++	if ((f = fopen(tmp, "r")) == NULL) {
++		if (errno == ENOENT) {
++			/*
++			 * file or dir doesn't exist, so therefore
++			 * this luser isn't banned..  all is well
++			 */
++			return(1);
++		} else {
++			/*
++			 * luser may in fact be banned, but we can't open the
++			 * file even though it's there. probably a config
++			 * problem.
++			 */
++			syslog(LOG_ERR, "Can't open banned file %s (%s)",
++			    tmp, strerror(errno));
++			return(0);
++		}
++	} else {
++		/*
++		 * luser is banned - spit the file at them to
++		 * tell what they can do and where they can go.
++		 */
++		syslog(LOG_INFO, "Denied access to %s: %s exists",
++		    luser, tmp);
++
++		/* reuse tmp */
++		strlcpy(tmp, "\n\n-**- Sorry, you have been banned! -**-\n\n",
++		    sizeof(tmp));
++		while ((fputs(tmp, stdout) != EOF) && !feof(f)) {
++			if (fgets(tmp, sizeof(tmp), f) == NULL) {
++				fflush(stdout);
++				return(0);
++			}
++		}
++	}
++	fflush(stdout);
++	return(0);
++}
++
++
++/*
++ * Add/remove filter entries for user "luser" from ip "ipsrc"
++ */
++static int
++changefilter(int add, char *luser, char *ipsrc)
++{
++	char rulesfile[MAXPATHLEN], buf[1024];
++	char template[] = "/tmp/authpfrules.XXXXXXX";
++	int tmpfile = -1, from_fd = -1, ret = -1;
++	struct pfioc_nat	pn;
++	struct pfioc_binat	pb;
++	struct pfioc_rdr	pd;
++	struct pfioc_rule	pr;
++	struct pfctl		pf;
++	int rcount, wcount;
++	FILE *fin = NULL;
++
++	memset(&pf, 0, sizeof(pf));
++	memset(&pr, 0, sizeof(pr));
++
++	syslog(LOG_DEBUG, "%s filter for ip=%s, user %s",
++	    add ? "Adding" : "Removing", ipsrc, luser);
++
++	/* add filter rules */
++	if (add)
++		Delete_Rules = 0;
++	else
++		Delete_Rules = 1;
++
++	tmpfile = mkstemp(template);
++	if (tmpfile == -1) {
++		syslog(LOG_ERR, "Can't open temp file %s (%m)",
++		    template);
++		goto error;
++	}
++
++	fin = fdopen(tmpfile, "r+");
++	if (fin == NULL) {
++		syslog(LOG_ERR, "can't open %s (%m)", template);
++		goto error;
++	}
++
++	/* write the variable to the start of the file */
++	fprintf(fin, "user_ip = \"%s\"\n", ipsrc);
++
++	fflush(fin);
++
++	if (snprintf(rulesfile, sizeof rulesfile, "%s/%s/authpf.rules",
++	    PATH_USER_DIR, luser) >= sizeof rulesfile) {
++		syslog(LOG_ERR, "user path too long, exiting");
++		goto error;
++	}
++	if ((from_fd = open(rulesfile, O_RDONLY, 0)) == -1) {
++		/* if user dir rules do not exist, we try PATH_PFRULES */
++		if (errno != ENOENT) {
++			syslog(LOG_ERR, "can't open %s (%m)", rulesfile);
++			if (unlink(template) == -1)
++				syslog(LOG_ERR, "can't unlink %s", template);
++			goto error;
++		}
++	}
++	if (from_fd == -1) {
++		snprintf(rulesfile, sizeof rulesfile, PATH_PFRULES);
++		if  ((from_fd = open(rulesfile, O_RDONLY, 0)) == -1) {
++			syslog(LOG_ERR, "can't open %s (%m)", rulesfile);
++			if (unlink(template) == -1)
++				syslog(LOG_ERR, "can't unlink %s", template);
++			goto error;
++		}
++	}
++
++	while ((rcount = read(from_fd, buf, sizeof(buf))) > 0) {
++		wcount = write(tmpfile, buf, rcount);
++		if (rcount != wcount || wcount == -1) {
++			syslog(LOG_ERR, "rules template copy failed");
++			if (unlink(template) == -1)
++				syslog(LOG_ERR, "can't unlink %s", template);
++			goto error;
++		}
++	}
++	if (rcount == -1) {
++		syslog(LOG_ERR, "read of rules template failed");
++		if (unlink(template) == -1)
++			syslog(LOG_ERR, "can't unlink %s", template);
++		goto error;
++	}
++
++	fclose(fin);
++	fin = NULL;
++	close(tmpfile);
++	tmpfile = -1;
++	close(from_fd);
++	from_fd = -1;
++
++	fin = fopen(template, "r");
++	if (fin == NULL) {
++		syslog(LOG_ERR, "can't open %s (%m)", template);
++		if (unlink(template) == -1)
++			syslog(LOG_ERR, "can't unlink %s", template);
++		goto error;
++	}
++
++	infile = template;
++
++	if (unlink(template) == -1) {
++		syslog(LOG_ERR, "can't unlink %s", template);
++		goto error;
++	}
++
++	/* add/delete rules, using parse_rule */
++	memset(&pf, 0, sizeof(pf));
++	pf.dev = dev;
++	pf.pnat = &pn;
++	pf.pbinat = &pb;
++	pf.prdr = &pd;
++	pf.prule = &pr;
++	if (parse_rules(fin, &pf) < 0) {
++		syslog(LOG_ERR,
++		    "syntax error in rule file: authpf rules not loaded");
++		goto error;
++	}
++	ret = 0;
++	goto out;
++ error:
++	ret = -1;
++ out:
++	if (fin != NULL)
++		fclose(fin);
++	if (tmpfile != -1)
++		close(tmpfile);
++	if (from_fd != -1)
++		close(from_fd);
++	if (add) {
++		(void)gettimeofday(&Tstart, NULL);
++		syslog(LOG_INFO, "Allowing %s, user %s", ipsrc, luser);
++	} else {
++		(void)gettimeofday(&Tend, NULL);
++		syslog(LOG_INFO, "Removed %s, user %s - duration %ld seconds",
++		    ipsrc, luser, Tend.tv_sec - Tstart.tv_sec);
++	}
++	return(ret);
++}
++
++/*
++ * This is to kill off states that would otherwise be left behind stateful
++ * rules. This means we don't need to allow in more traffic than we really
++ * want to, since we don't have to worry about any luser sessions lasting
++ * longer than their ssh session. This function is based on
++ * pfctl_kill_states from pfctl.
++ */
++static void
++authpf_kill_states()
++{
++	struct pfioc_state_kill psk;
++	struct in_addr target;
++
++	memset(&psk, 0, sizeof(psk));
++	psk.psk_af = AF_INET;
++
++	inet_pton(AF_INET, ipsrc, &target);
++
++	/* Kill all states from ipsrc */
++	psk.psk_src.addr.addr.v4 = target;
++	memset(&psk.psk_src.mask, 0xff, sizeof(psk.psk_src.mask));
++	if (ioctl(dev, DIOCKILLSTATES, &psk))
++		syslog(LOG_ERR, "DIOCKILLSTATES failed (%m)");
++
++	/* Kill all states to ipsrc */
++	memset(&psk.psk_src, 0, sizeof(psk.psk_src));
++	psk.psk_dst.addr.addr.v4 = target;
++	memset(&psk.psk_dst.mask, 0xff, sizeof(psk.psk_dst.mask));
++	if (ioctl(dev, DIOCKILLSTATES, &psk))
++		syslog(LOG_ERR, "DIOCKILLSTATES failed (%m)");
++}
++
++/* signal handler that makes us go away properly */
++static void
++need_death(int signo)
++{
++	want_death = 1;
++}
++
++/*
++ * function that removes our stuff when we go away.
++ */
++static void
++do_death(int active)
++{
++	int ret = 0;
++
++	if (active) {
++		changefilter(0, luser, ipsrc);
++		authpf_kill_states();
++	}
++	if (pidfp)
++		ftruncate(fileno(pidfp), 0);
++	if (pidfile[0])
++		if (unlink(pidfile) == -1)
++			syslog(LOG_ERR, "can't unlink %s (%m)", pidfile);
++	exit(ret);
++}
++
++/*
++ * callback for rule add, used by parser in parse_rules
++ */
++int
++pfctl_add_rule(struct pfctl *pf, struct pf_rule *r)
++{
++	struct pfioc_changerule pcr;
++
++	memset(&pcr, 0, sizeof(pcr));
++	if (Delete_Rules) {
++		pcr.action = PF_CHANGE_REMOVE;
++		memcpy(&pcr.oldrule, r, sizeof(pcr.oldrule));
++	} else {
++		pcr.action = Rule_Action;
++		memcpy(&pcr.newrule, r, sizeof(pcr.newrule));
++	}
++	if ((pf->opts & PF_OPT_NOACTION) == 0) {
++		if (ioctl(pf->dev, DIOCCHANGERULE, &pcr))
++			syslog(LOG_INFO, "DIOCCHANGERULE %m");
++	}
++
++	return 0;
++}
++
++/*
++ * callback for nat add, used by parser in parse_rules
++ */
++int
++pfctl_add_nat(struct pfctl *pf, struct pf_nat *n)
++{
++	struct pfioc_changenat pcr;
++
++	memset(&pcr, 0, sizeof(pcr));
++	if (Delete_Rules) {
++		pcr.action = PF_CHANGE_REMOVE;
++		memcpy(&pcr.oldnat, n, sizeof(pcr.oldnat));
++	} else {
++		pcr.action = Nat_Action;
++		memcpy(&pcr.newnat, n, sizeof(pcr.newnat));
++	}
++	if ((pf->opts & PF_OPT_NOACTION) == 0) {
++		if (ioctl(pf->dev, DIOCCHANGENAT, &pcr))
++			syslog(LOG_INFO, "DIOCCHANGENAT %m");
++	}
++	return 0;
++}
++
++/*
++ * callback for rdr add, used by parser in parse_rules
++ */
++int
++pfctl_add_rdr(struct pfctl *pf, struct pf_rdr *r)
++{
++	struct pfioc_changerdr pcr;
++
++	memset(&pcr, 0, sizeof(pcr));
++	if (Delete_Rules) {
++		pcr.action = PF_CHANGE_REMOVE;
++		memcpy(&pcr.oldrdr, r, sizeof(pcr.oldrdr));
++	} else {
++		pcr.action = Rdr_Action;
++		memcpy(&pcr.newrdr, r, sizeof(pcr.newrdr));
++	}
++	if ((pf->opts & PF_OPT_NOACTION) == 0) {
++		if (ioctl(pf->dev, DIOCCHANGERDR, &pcr))
++			syslog(LOG_INFO, "DIOCCHANGERDR %m");
++	}
++	return 0;
++}
++
++/*
++ * We don't support adding binat's, since pf doesn't,
++ * and I can't for the life of me think of a sane situation where it
++ * might be useful.  This is here only because the pfctl parse
++ * routines need this defined.
++ */
++int
++pfctl_add_binat(struct pfctl *pf, struct pf_binat *b)
++{
++	return (0);
++}
++
++int
++pfctl_set_timeout(struct pfctl *pf, const char *opt, int seconds)
++{
++	fprintf(stderr, "set timeout not supported in authpf\n");
++	return (1);
++}
++
++int
++pfctl_set_optimization(struct pfctl *pf, const char *opt)
++{
++	fprintf(stderr, "set optimization not supported in authpf\n");
++	return (1);
++}
++
++int
++pfctl_set_limit(struct pfctl *pf, const char *opt, unsigned int limit)
++{
++	fprintf(stderr, "set limit not supported in authpf\n");
++	return (1);
++}
++
++int
++pfctl_set_logif(struct pfctl *pf, char *ifname)
++{
++	fprintf(stderr, "set loginterface not supported in authpf\n");
++	return (1);
++}
++
+diff -Nur /usr/src/sbin.orig/authpf/pathnames.h /usr/src/sbin/authpf/pathnames.h
+--- /usr/src/sbin.orig/authpf/pathnames.h	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/authpf/pathnames.h	Fri Jul 11 07:51:41 2025
+@@ -0,0 +1,41 @@
++/*	$OpenBSD: pathnames.h,v 1.4 2002/06/07 08:51:44 beck Exp $	*/
++
++/*
++ * Copyright (C) 2002 Chris Kuethe (ckuethe@ualberta.ca)
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. Neither the name of the author nor the names of contributors
++ *    may be used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ */
++
++#define PATH_CONFFILE		"/etc/authpf/authpf.conf"
++#define PATH_ALLOWFILE		"/etc/authpf/authpf.allow"
++#define PATH_PFRULES		"/etc/authpf/authpf.rules"
++#define PATH_NATRULES		"/etc/authpf/authpf.nat"
++#define PATH_PROBLEM		"/etc/authpf/authpf.problem"
++#define PATH_MESSAGE		"/etc/authpf/authpf.message"
++#define PATH_USER_DIR		"/etc/authpf/users"
++#define PATH_BAN_DIR		"/etc/authpf/banned"
++#define PATH_DEVFILE		"/dev/pf"
++#define PATH_PIDFILE		"/var/authpf"
++#define PATH_AUTHPF_SHELL	"/usr/sbin/authpf"
+diff -Nur /usr/src/sbin.orig/pfctl/Makefile /usr/src/sbin/pfctl/Makefile
+--- /usr/src/sbin.orig/pfctl/Makefile	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pfctl/Makefile	Fri Jul 11 17:04:03 2025
+@@ -0,0 +1,10 @@
++#	$OpenBSD: Makefile,v 1.8 2002/09/14 17:51:53 henning Exp $
++
++.PATH:  ${.CURDIR}/../../pfctl
++
++PROG=	pfctl
++SRCS=	pfctl.c parse.y pfctl_parser.c pf_print_state.c
++CFLAGS+=	-Wall
++MAN=	pfctl.8
++
++.include <bsd.prog.mk>
+diff -Nur /usr/src/sbin.orig/pfctl/parse.y /usr/src/sbin/pfctl/parse.y
+--- /usr/src/sbin.orig/pfctl/parse.y	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pfctl/parse.y	Fri Jul 11 07:51:42 2025
+@@ -0,0 +1,2883 @@
++/*
++ * Copyright (c) 2001 Markus Friedl.  All rights reserved.
++ * Copyright (c) 2001 Daniel Hartmeier.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *	$OpenBSD: parse.y,v 1.154 2002/09/22 15:30:15 henning Exp $
++ */
++%{
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <sys/ioctl.h>
++#include <net/if.h>
++#include <netinet/in.h>
++#include <netinet/in_systm.h>
++#include <netinet/ip.h>
++#include <netinet/ip_icmp.h>
++#include <netinet/icmp6.h>
++#include <net/pfvar.h>
++#include <arpa/inet.h>
++
++#include <machine/limits.h>
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <ifaddrs.h>
++#include <netdb.h>
++#include <stdarg.h>
++#include <errno.h>
++#include <string.h>
++#include <ctype.h>
++#include <err.h>
++#include <pwd.h>
++#include <grp.h>
++
++#include "pfctl_parser.h"
++
++#define UID_MAX -1
++#define GID_MAX -1
++
++static struct pfctl *pf = NULL;
++static FILE *fin = NULL;
++static int debug = 0;
++static int lineno = 1;
++static int errors = 0;
++static int rulestate = 0;
++
++enum {
++	PFCTL_STATE_NONE = 0,
++	PFCTL_STATE_OPTION = 1,
++	PFCTL_STATE_SCRUB = 2,
++	PFCTL_STATE_NAT = 3,
++	PFCTL_STATE_FILTER = 4
++};
++
++enum pfctl_iflookup_mode {
++	PFCTL_IFLOOKUP_HOST = 0,
++	PFCTL_IFLOOKUP_NET = 1,
++	PFCTL_IFLOOKUP_BCAST = 2
++};
++
++struct node_if {
++	char			 ifname[IFNAMSIZ];
++	u_int8_t		 not;
++	u_int			 ifa_flags;
++	struct node_if		*next;
++};
++
++struct node_proto {
++	u_int8_t		 proto;
++	struct node_proto	*next;
++};
++
++struct node_host {
++	struct pf_addr_wrap	 addr;
++	struct pf_addr		 mask;
++	struct pf_addr		 bcast;
++	u_int8_t		 af;
++	u_int8_t		 not;
++	u_int8_t		 noroute;
++	struct node_host	*next;
++	u_int32_t		 ifindex;	/* link-local IPv6 addrs */
++	char			*ifname;
++	u_int			 ifa_flags;
++};
++
++struct node_port {
++	u_int16_t		 port[2];
++	u_int8_t		 op;
++	struct node_port	*next;
++};
++
++struct node_uid {
++	uid_t			 uid[2];
++	u_int8_t		 op;
++	struct node_uid		*next;
++};
++
++struct node_gid {
++	gid_t			 gid[2];
++	u_int8_t		 op;
++	struct node_gid		*next;
++};
++
++struct node_icmp {
++	u_int8_t		 code;
++	u_int8_t		 type;
++	u_int8_t		 proto;
++	struct node_icmp	*next;
++};
++
++enum	{ PF_STATE_OPT_MAX=0, PF_STATE_OPT_TIMEOUT=1 };
++struct node_state_opt {
++	int			 type;
++	union {
++		u_int32_t	 max_states;
++		struct {
++			int		number;
++			u_int32_t	seconds;
++		}		 timeout;
++	}			 data;
++	struct node_state_opt	*next;
++};
++
++struct peer {
++	struct node_host	*host;
++	struct node_port	*port;
++};
++
++int	yyerror(char *, ...);
++int	rule_consistent(struct pf_rule *);
++int	nat_consistent(struct pf_nat *);
++int	rdr_consistent(struct pf_rdr *);
++int	yyparse(void);
++void	ipmask(struct pf_addr *, u_int8_t);
++void	expand_rdr(struct pf_rdr *, struct node_if *, struct node_proto *,
++	    struct node_host *, struct node_host *);
++void	expand_nat(struct pf_nat *, struct node_if *, struct node_proto *,
++	    struct node_host *, struct node_port *,
++	    struct node_host *, struct node_port *);
++void	expand_label_addr(const char *, char *, u_int8_t, struct node_host *);
++void	expand_label_port(const char *, char *, struct node_port *);
++void	expand_label_proto(const char *, char *, u_int8_t);
++void	expand_label_nr(const char *, char *);
++void	expand_label(char *, u_int8_t, struct node_host *, struct node_port *,
++	    struct node_host *, struct node_port *, u_int8_t);
++void	expand_rule(struct pf_rule *, struct node_if *, struct node_proto *,
++	    struct node_host *, struct node_port *, struct node_host *,
++	    struct node_port *, struct node_uid *, struct node_gid *,
++	    struct node_icmp *);
++int	check_rulestate(int);
++int	kw_cmp(const void *, const void *);
++int	lookup(char *);
++int	lgetc(FILE *);
++int	lungetc(int, FILE *);
++int	findeol(void);
++int	yylex(void);
++struct	node_host *host(char *);
++int	atoul(char *, u_long *);
++int	getservice(char *);
++
++
++struct sym {
++	struct sym *next;
++	char *nam;
++	char *val;
++};
++struct sym *symhead = NULL;
++
++int	symset(const char *, const char *);
++char *	symget(const char *);
++
++void	ifa_load(void);
++struct	node_host *ifa_exists(char *);
++struct	node_host *ifa_lookup(char *, enum pfctl_iflookup_mode);
++struct	node_host *ifa_pick_ip(struct node_host *, u_int8_t);
++
++typedef struct {
++	union {
++		u_int32_t		number;
++		int			i;
++		char			*string;
++		struct {
++			u_int8_t	b1;
++			u_int8_t	b2;
++			u_int16_t	w;
++		}			b;
++		struct range {
++			int		a;
++			int		b;
++			int		t;
++		}			range;
++		struct node_if		*interface;
++		struct node_proto	*proto;
++		struct node_icmp	*icmp;
++		struct node_host	*host;
++		struct node_port	*port;
++		struct node_uid		*uid;
++		struct node_gid		*gid;
++		struct node_state_opt	*state_opt;
++		struct peer		peer;
++		struct {
++			struct peer	src, dst;
++		}			fromto;
++		struct {
++			char		*string;
++			struct pf_addr	*addr;
++			u_int8_t	rt;
++			u_int8_t	af;
++		}			route;
++		struct redirection {
++			struct node_host	*address;
++			struct range		 rport;
++		}			*redirection;
++		struct {
++			int			 action;
++			struct node_state_opt	*options;
++		}			keep_state;
++		struct {
++			u_int8_t	log;
++			u_int8_t	quick;
++		}			logquick;
++	} v;
++	int lineno;
++} YYSTYPE;
++
++%}
++
++%token	PASS BLOCK SCRUB RETURN IN OUT LOG LOGALL QUICK ON FROM TO FLAGS
++%token	RETURNRST RETURNICMP RETURNICMP6 PROTO INET INET6 ALL ANY ICMPTYPE
++%token	ICMP6TYPE CODE KEEP MODULATE STATE PORT RDR NAT BINAT ARROW NODF
++%token	MINTTL ERROR ALLOWOPTS FASTROUTE ROUTETO DUPTO NO LABEL
++%token	NOROUTE FRAGMENT USER GROUP MAXMSS MAXIMUM TTL
++%token	FRAGNORM FRAGDROP FRAGCROP
++%token	SET OPTIMIZATION TIMEOUT LIMIT LOGINTERFACE
++%token	ANTISPOOF FOR
++%token	<v.string> STRING
++%token	<v.i>	PORTUNARY PORTBINARY
++%type	<v.interface>	interface if_list if_item_not if_item
++%type	<v.number>	number port icmptype icmp6type minttl uid gid maxmss
++%type	<v.i>	no dir log af nodf allowopts fragment fragcache
++%type	<v.b>	action flag flags blockspec
++%type	<v.range>	dport rport
++%type	<v.proto>	proto proto_list proto_item
++%type	<v.icmp>	icmpspec icmp_list icmp6_list icmp_item icmp6_item
++%type	<v.fromto>	fromto
++%type	<v.peer>	ipportspec
++%type	<v.host>	ipspec xhost host address host_list
++%type	<v.port>	portspec port_list port_item
++%type	<v.uid>		uids uid_list uid_item
++%type	<v.gid>		gids gid_list gid_item
++%type	<v.route>	route
++%type	<v.redirection>	redirection
++%type	<v.string>	label string
++%type	<v.keep_state>	keep
++%type	<v.state_opt>	state_opt_spec state_opt_list state_opt_item
++%type	<v.logquick>	logquick
++%type	<v.interface>	antispoof_ifspc antispoof_iflst
++%%
++
++ruleset		: /* empty */
++		| ruleset '\n'
++		| ruleset option '\n'
++		| ruleset scrubrule '\n'
++		| ruleset natrule '\n'
++		| ruleset binatrule '\n'
++		| ruleset rdrrule '\n'
++		| ruleset pfrule '\n'
++		| ruleset varset '\n'
++		| ruleset antispoof '\n'
++		| ruleset error '\n'		{ errors++; }
++		;
++
++option		: SET OPTIMIZATION STRING		{
++			if (pf->opts & PF_OPT_VERBOSE)
++				printf("set optimization %s\n", $3);
++			if (check_rulestate(PFCTL_STATE_OPTION))
++				YYERROR;
++			if (pfctl_set_optimization(pf, $3) != 0) {
++				yyerror("unknown optimization %s", $3);
++				YYERROR;
++			}
++		}
++		| SET TIMEOUT timeout_spec
++		| SET TIMEOUT '{' timeout_list '}'
++		| SET LIMIT limit_spec
++		| SET LIMIT '{' limit_list '}'
++		| SET LOGINTERFACE STRING		{
++			if (pf->opts & PF_OPT_VERBOSE)
++				printf("set loginterface %s\n", $3);
++			if (check_rulestate(PFCTL_STATE_OPTION))
++				YYERROR;
++			if (pfctl_set_logif(pf, $3) != 0) {
++				yyerror("error setting loginterface %s", $3);
++				YYERROR;
++			}
++		}
++		;
++
++string		: string STRING				{
++			if (asprintf(&$$, "%s %s", $1, $2) == -1) {
++				yyerror("malloc failed");
++				YYERROR;
++			}
++			free($1);
++			free($2);
++		}
++		| STRING
++		;
++
++varset		: STRING PORTUNARY string		{
++			if (pf->opts & PF_OPT_VERBOSE)
++				printf("%s = %s\n", $1, $3);
++			if (symset($1, $3) == -1) {
++				yyerror("cannot store variable %s", $1);
++				YYERROR;
++			}
++		}
++		;
++
++scrubrule	: SCRUB dir interface fromto nodf minttl maxmss fragcache
++		{
++			struct pf_rule r;
++
++			if (check_rulestate(PFCTL_STATE_SCRUB))
++				YYERROR;
++
++			memset(&r, 0, sizeof(r));
++
++			r.action = PF_SCRUB;
++			r.direction = $2;
++
++			if ($3) {
++				if ($3->not) {
++					yyerror("scrub rules don't support "
++					    "'! <if>'");
++					YYERROR;
++				} else if ($3->next) {
++					yyerror("scrub rules don't support "
++					    "{} expansion");
++					YYERROR;
++				}
++				memcpy(r.ifname, $3->ifname,
++				    sizeof(r.ifname));
++				free($3);
++			}
++			if ($5)
++				r.rule_flag |= PFRULE_NODF;
++			if ($6)
++				r.min_ttl = $6;
++			if ($7)
++				r.max_mss = $7;
++			if ($8)
++				r.rule_flag |= $8;
++
++			r.nr = pf->rule_nr++;
++			if (rule_consistent(&r) < 0)
++				yyerror("skipping scrub rule due to errors");
++			else
++				pfctl_add_rule(pf, &r);
++
++		}
++		;
++
++antispoof	: ANTISPOOF logquick antispoof_ifspc af {
++			struct pf_rule r;
++			struct node_host *h = NULL;
++			struct node_if *i, *j;
++
++			if (check_rulestate(PFCTL_STATE_FILTER))
++				YYERROR;
++
++			for (i = $3; i; i = i->next) {
++				memset(&r, 0, sizeof(r));
++
++				r.action = PF_DROP;
++				r.direction = PF_IN;
++				r.log = $2.log;
++				r.quick = $2.quick;
++				r.af = $4;
++
++				j = calloc(1, sizeof(struct node_if));
++				if (j == NULL)
++					errx(1, "antispoof: calloc");
++				strlcpy(j->ifname, i->ifname, IFNAMSIZ);
++				j->not = 1;
++				h = ifa_lookup(j->ifname, PFCTL_IFLOOKUP_NET);
++
++				expand_rule(&r, j, NULL, h, NULL, NULL, NULL,
++				    NULL, NULL, NULL);
++
++				if ((i->ifa_flags & IFF_LOOPBACK) == 0) {
++					memset(&r, 0, sizeof(r));
++
++					r.action = PF_DROP;
++					r.direction = PF_IN;
++					r.log = $2.log;
++					r.quick = $2.quick;
++					r.af = $4;
++
++					h = ifa_lookup(i->ifname,
++					    PFCTL_IFLOOKUP_HOST);
++
++					expand_rule(&r, NULL, NULL, h, NULL,
++					    NULL, NULL, NULL, NULL, NULL);
++				}
++			}
++		}
++		;
++
++antispoof_ifspc	: FOR if_item			{ $$ = $2; }
++		| FOR '{' antispoof_iflst '}'	{ $$ = $3; }
++		;
++
++
++antispoof_iflst	: if_item			{ $$ = $1; }
++		| antispoof_iflst comma if_item	{ $3->next = $1; $$ = $3; }
++
++pfrule		: action dir logquick interface route af proto fromto
++		  uids gids flags icmpspec keep fragment allowopts label
++		{
++			struct pf_rule r;
++			struct node_state_opt *o;
++			struct node_proto *proto;
++
++			if (check_rulestate(PFCTL_STATE_FILTER))
++				YYERROR;
++
++			memset(&r, 0, sizeof(r));
++
++			r.action = $1.b1;
++			if ($1.b2) {
++				r.rule_flag |= PFRULE_RETURNRST;
++				r.return_ttl = $1.w;
++			} else
++				r.return_icmp = $1.w;
++			r.direction = $2;
++			r.log = $3.log;
++			r.quick = $3.quick;
++
++			r.af = $6;
++			r.flags = $11.b1;
++			r.flagset = $11.b2;
++
++			if ($11.b1 || $11.b2) {
++				for (proto = $7; proto != NULL &&
++				    proto->proto != IPPROTO_TCP;
++				    proto = proto->next)
++					;	/* nothing */
++				if (proto == NULL && $7 != NULL) {
++					yyerror("flags only apply to tcp");
++					YYERROR;
++				}
++			}
++
++			r.keep_state = $13.action;
++			o = $13.options;
++			while (o) {
++				struct node_state_opt *p = o;
++
++				switch (o->type) {
++				case PF_STATE_OPT_MAX:
++					if (r.max_states) {
++						yyerror("state option 'max' "
++						    "multiple definitions");
++						YYERROR;
++					}
++					r.max_states = o->data.max_states;
++					break;
++				case PF_STATE_OPT_TIMEOUT:
++					if (r.timeout[o->data.timeout.number]) {
++						yyerror("state timeout %s "
++						    "multiple definitions",
++						    pf_timeouts[o->data.
++						    timeout.number].name);
++						YYERROR;
++					}
++					r.timeout[o->data.timeout.number] =
++					    o->data.timeout.seconds;
++				}
++				o = o->next;
++				free(p);
++			}
++
++			if ($14)
++				r.rule_flag |= PFRULE_FRAGMENT;
++			r.allow_opts = $15;
++
++			if ($5.rt) {
++				r.rt = $5.rt;
++				if ($5.string) {
++					strlcpy(r.rt_ifname, $5.string,
++					    IFNAMSIZ);
++					if (ifa_exists(r.rt_ifname) == NULL) {
++						yyerror("unknown interface %s",
++						    r.rt_ifname);
++						YYERROR;
++					}
++					free($5.string);
++				}
++				if ($5.addr) {
++					if (!r.af)
++						r.af = $5.af;
++					else if (r.af != $5.af) {
++						yyerror("address family"
++						    " mismatch");
++						YYERROR;
++					}
++					memcpy(&r.rt_addr, $5.addr,
++					    sizeof(r.rt_addr));
++					free($5.addr);
++				}
++			}
++
++			if ($16) {
++				if (strlen($16) >= PF_RULE_LABEL_SIZE) {
++					yyerror("rule label too long (max "
++					    "%d chars)", PF_RULE_LABEL_SIZE-1);
++					YYERROR;
++				}
++				strlcpy(r.label, $16, sizeof(r.label));
++				free($16);
++			}
++
++			expand_rule(&r, $4, $7, $8.src.host, $8.src.port,
++			    $8.dst.host, $8.dst.port, $9, $10, $12);
++		}
++		;
++
++action		: PASS			{ $$.b1 = PF_PASS; $$.b2 = $$.w = 0; }
++		| BLOCK blockspec	{ $$ = $2; $$.b1 = PF_DROP; }
++		;
++
++blockspec	: /* empty */		{ $$.b2 = 0; $$.w = 0; }
++		| RETURNRST		{ $$.b2 = 1; $$.w = 0; }
++		| RETURNRST '(' TTL number ')'	{
++			$$.w = $4;
++			$$.b2 = 1;
++		}
++		| RETURNICMP		{
++			$$.b2 = 0;
++			$$.w = (ICMP_UNREACH << 8) | ICMP_UNREACH_PORT;
++		}
++		| RETURNICMP6		{
++			$$.b2 = 0;
++			$$.w = (ICMP6_DST_UNREACH << 8) |
++			    ICMP6_DST_UNREACH_NOPORT;
++		}
++		| RETURNICMP '(' STRING ')'	{
++			const struct icmpcodeent *p;
++			u_long ulval;
++
++			if (atoul($3, &ulval) == -1) {
++				if ((p = geticmpcodebyname(ICMP_UNREACH, $3,
++				    AF_INET)) == NULL) {
++					yyerror("unknown icmp code %s", $3);
++					YYERROR;
++				}
++				ulval = p->code;
++			}
++			$$.w = (ICMP_UNREACH << 8) | ulval;
++			$$.b2 = 0;
++		}
++		| RETURNICMP6 '(' STRING ')'	{
++			const struct icmpcodeent *p;
++			u_long ulval;
++
++			if (atoul($3, &ulval) == -1) {
++				if ((p = geticmpcodebyname(ICMP6_DST_UNREACH, $3,
++				    AF_INET6)) == NULL) {
++					yyerror("unknown icmp code %s", $3);
++					YYERROR;
++				}
++				ulval = p->code;
++			}
++			$$.w = (ICMP6_DST_UNREACH << 8) | ulval;
++			$$.b2 = 0;
++		}
++		;
++
++fragcache	: /* empty */		{ $$ = 0; }
++		| fragment FRAGNORM	{ $$ = 0; /* default */ }
++		| fragment FRAGCROP	{ $$ = PFRULE_FRAGCROP; }
++		| fragment FRAGDROP	{ $$ = PFRULE_FRAGDROP; }
++		;
++
++
++dir		: IN				{ $$ = PF_IN; }
++		| OUT				{ $$ = PF_OUT; }
++		;
++
++logquick	: /* empty */			{ $$.log = 0; $$.quick = 0; }
++		| log				{ $$.log = $1; $$.quick = 0; }
++		| QUICK				{ $$.log = 0; $$.quick = 1; }
++		| log QUICK			{ $$.log = $1; $$.quick = 1; }
++		| QUICK log			{ $$.log = $2; $$.quick = 1; }
++		;
++
++log		: LOG				{ $$ = 1; }
++		| LOGALL			{ $$ = 2; }
++		;
++
++interface	: /* empty */			{ $$ = NULL; }
++		| ON if_item_not		{ $$ = $2; }
++		| ON '{' if_list '}'		{ $$ = $3; }
++		;
++
++if_list		: if_item_not			{ $$ = $1; }
++		| if_list comma if_item_not	{ $3->next = $1; $$ = $3; }
++		;
++
++if_item_not	: '!' if_item			{ $$ = $2; $$->not = 1; }
++		| if_item			{ $$ = $1; }
++
++if_item		: STRING			{
++			struct node_host *n;
++
++			if ((n = ifa_exists($1)) == NULL) {
++				yyerror("unknown interface %s", $1);
++				YYERROR;
++			}
++			$$ = malloc(sizeof(struct node_if));
++			if ($$ == NULL)
++				err(1, "if_item: malloc");
++			strlcpy($$->ifname, $1, IFNAMSIZ);
++			$$->ifa_flags = n->ifa_flags;
++			$$->not = 0;
++			$$->next = NULL;
++		}
++		;
++
++af		: /* empty */			{ $$ = 0; }
++		| INET				{ $$ = AF_INET; }
++		| INET6				{ $$ = AF_INET6; }
++
++proto		: /* empty */			{ $$ = NULL; }
++		| PROTO proto_item		{ $$ = $2; }
++		| PROTO '{' proto_list '}'	{ $$ = $3; }
++		;
++
++proto_list	: proto_item			{ $$ = $1; }
++		| proto_list comma proto_item	{ $3->next = $1; $$ = $3; }
++		;
++
++proto_item	: STRING			{
++			struct protoent *p;
++			u_long ulval;
++
++			if (atoul($1, &ulval) == 0)
++				p = getprotobynumber(ulval);
++			else
++				p = getprotobyname($1);
++
++			if (p == NULL) {
++				yyerror("unknown protocol %s", $1);
++				YYERROR;
++			}
++			$$ = malloc(sizeof(struct node_proto));
++			if ($$ == NULL)
++				err(1, "proto_item: malloc");
++			$$->proto = p->p_proto;
++			$$->next = NULL;
++		}
++		;
++
++fromto		: ALL				{
++			$$.src.host = NULL;
++			$$.src.port = NULL;
++			$$.dst.host = NULL;
++			$$.dst.port = NULL;
++		}
++		| FROM ipportspec TO ipportspec	{
++			$$.src = $2;
++			$$.dst = $4;
++		}
++		;
++
++ipportspec	: ipspec			{ $$.host = $1; $$.port = NULL; }
++		| ipspec PORT portspec		{
++			$$.host = $1;
++			$$.port = $3;
++		}
++		;
++
++ipspec		: ANY				{ $$ = NULL; }
++		| xhost				{ $$ = $1; }
++		| '{' host_list '}'		{ $$ = $2; }
++		;
++
++host_list	: xhost				{ $$ = $1; }
++		| host_list comma xhost		{
++			if ($3 == NULL)
++				$$ = $1;
++			else {
++				/* both $1 and $3 may be lists, so join them */
++				$$ = $3;
++				while ($3->next)
++					$3 = $3->next;
++				$3->next = $1;
++			}
++		}
++		;
++
++xhost		: '!' host			{
++			struct node_host *h;
++			for (h = $2; h; h = h->next)
++				h->not = 1;
++			$$ = $2;
++		}
++		| host				{ $$ = $1; }
++		| NOROUTE			{
++			$$ = calloc(1, sizeof(struct node_host));
++			if ($$ == NULL)
++				err(1, "xhost: calloc");
++			$$->noroute = 1;
++		}
++		;
++
++host		: address
++		| address '/' number		{
++			struct node_host *n;
++			for (n = $1; n; n = n->next) {
++				if ($1->af == AF_INET) {
++					if ($3 < 0 || $3 > 32) {
++						yyerror(
++						    "illegal netmask value /%d",
++						    $3);
++						YYERROR;
++					}
++				} else {
++					if ($3 < 0 || $3 > 128) {
++						yyerror(
++						    "illegal netmask value /%d",
++						    $3);
++						YYERROR;
++					}
++				}
++				ipmask(&n->mask, $3);
++			}
++			$$ = $1;
++		}
++		;
++
++number:		STRING
++		{
++			u_long ulval;
++
++			if (atoul($1, &ulval) == -1) {
++				yyerror("%s is not a number", $1);
++				YYERROR;
++			} else
++				$$ = ulval;
++		}
++		;
++
++address		: '(' STRING ')'		{
++			$$ = calloc(1, sizeof(struct node_host));
++			if ($$ == NULL)
++				err(1, "address: calloc");
++			$$->af = 0;
++			ipmask(&$$->mask, 128);
++			$$->addr.addr_dyn = (struct pf_addr_dyn *)1;
++			strncpy($$->addr.addr.pfa.ifname, $2,
++			    sizeof($$->addr.addr.pfa.ifname));
++		}
++		| STRING			{ $$ = host($1); }
++		;
++
++portspec	: port_item			{ $$ = $1; }
++		| '{' port_list '}'		{ $$ = $2; }
++		;
++
++port_list	: port_item			{ $$ = $1; }
++		| port_list comma port_item	{ $3->next = $1; $$ = $3; }
++		;
++
++port_item	: port				{
++			$$ = malloc(sizeof(struct node_port));
++			if ($$ == NULL)
++				err(1, "port_item: malloc");
++			$$->port[0] = $1;
++			$$->port[1] = $1;
++			$$->op = PF_OP_EQ;
++			$$->next = NULL;
++		}
++		| PORTUNARY port		{
++			$$ = malloc(sizeof(struct node_port));
++			if ($$ == NULL)
++				err(1, "port_item: malloc");
++			$$->port[0] = $2;
++			$$->port[1] = $2;
++			$$->op = $1;
++			$$->next = NULL;
++		}
++		| port PORTBINARY port		{
++			$$ = malloc(sizeof(struct node_port));
++			if ($$ == NULL)
++				err(1, "port_item: malloc");
++			$$->port[0] = $1;
++			$$->port[1] = $3;
++			$$->op = $2;
++			$$->next = NULL;
++		}
++		;
++
++port		: STRING			{
++			struct servent *s = NULL;
++			u_long ulval;
++
++			if (atoul($1, &ulval) == 0) {
++				if (ulval < 0 || ulval > 65535) {
++					yyerror("illegal port value %d", ulval);
++					YYERROR;
++				}
++				$$ = htons(ulval);
++			} else {
++				s = getservbyname($1, "tcp");
++				if (s == NULL)
++					s = getservbyname($1, "udp");
++				if (s == NULL) {
++					yyerror("unknown port %s", $1);
++					YYERROR;
++				}
++				$$ = s->s_port;
++			}
++		}
++		;
++
++uids		: /* empty */			{ $$ = NULL; }
++		| USER uid_item			{ $$ = $2; }
++		| USER '{' uid_list '}'		{ $$ = $3; }
++		;
++
++uid_list	: uid_item			{ $$ = $1; }
++		| uid_list comma uid_item	{ $3->next = $1; $$ = $3; }
++		;
++
++uid_item	: uid				{
++			$$ = malloc(sizeof(struct node_uid));
++			if ($$ == NULL)
++				err(1, "uid_item: malloc");
++			$$->uid[0] = $1;
++			$$->uid[1] = $1;
++			$$->op = PF_OP_EQ;
++			$$->next = NULL;
++		}
++		| PORTUNARY uid			{
++			if ($2 == UID_MAX && $1 != PF_OP_EQ && $1 != PF_OP_NE) {
++				yyerror("user unknown requires operator = or !=");
++				YYERROR;
++			}
++			$$ = malloc(sizeof(struct node_uid));
++			if ($$ == NULL)
++				err(1, "uid_item: malloc");
++			$$->uid[0] = $2;
++			$$->uid[1] = $2;
++			$$->op = $1;
++			$$->next = NULL;
++		}
++		| uid PORTBINARY uid		{
++			if ($1 == UID_MAX || $3 == UID_MAX) {
++				yyerror("user unknown requires operator = or !=");
++				YYERROR;
++			}
++			$$ = malloc(sizeof(struct node_uid));
++			if ($$ == NULL)
++				err(1, "uid_item: malloc");
++			$$->uid[0] = $1;
++			$$->uid[1] = $3;
++			$$->op = $2;
++			$$->next = NULL;
++		}
++		;
++
++uid		: STRING			{
++			u_long ulval;
++
++			if (atoul($1, &ulval) == -1) {
++				if (!strcmp($1, "unknown"))
++					$$ = UID_MAX;
++				else {
++					struct passwd *pw;
++
++					if ((pw = getpwnam($1)) == NULL) {
++						yyerror("unknown user %s", $1);
++						YYERROR;
++					}
++					$$ = pw->pw_uid;
++				}
++			} else {
++				if (ulval < 0 || ulval >= UID_MAX) {
++					yyerror("illegal uid value %ul", ulval);
++					YYERROR;
++				}
++				$$ = ulval;
++			}
++		}
++		;
++
++gids		: /* empty */			{ $$ = NULL; }
++		| GROUP gid_item		{ $$ = $2; }
++		| GROUP '{' gid_list '}'	{ $$ = $3; }
++		;
++
++gid_list	: gid_item			{ $$ = $1; }
++		| gid_list comma gid_item	{ $3->next = $1; $$ = $3; }
++		;
++
++gid_item	: gid				{
++			$$ = malloc(sizeof(struct node_gid));
++			if ($$ == NULL)
++				err(1, "gid_item: malloc");
++			$$->gid[0] = $1;
++			$$->gid[1] = $1;
++			$$->op = PF_OP_EQ;
++			$$->next = NULL;
++		}
++		| PORTUNARY gid			{
++			if ($2 == GID_MAX && $1 != PF_OP_EQ && $1 != PF_OP_NE) {
++				yyerror("group unknown requires operator = or !=");
++				YYERROR;
++			}
++			$$ = malloc(sizeof(struct node_gid));
++			if ($$ == NULL)
++				err(1, "gid_item: malloc");
++			$$->gid[0] = $2;
++			$$->gid[1] = $2;
++			$$->op = $1;
++			$$->next = NULL;
++		}
++		| gid PORTBINARY gid		{
++			if ($1 == GID_MAX || $3 == GID_MAX) {
++				yyerror("group unknown requires operator = or !=");
++				YYERROR;
++			}
++			$$ = malloc(sizeof(struct node_gid));
++			if ($$ == NULL)
++				err(1, "gid_item: malloc");
++			$$->gid[0] = $1;
++			$$->gid[1] = $3;
++			$$->op = $2;
++			$$->next = NULL;
++		}
++		;
++
++gid		: STRING			{
++			u_long ulval;
++
++			if (atoul($1, &ulval) == -1) {
++				if (!strcmp($1, "unknown"))
++					$$ = GID_MAX;
++				else {
++					struct group *grp;
++
++					if ((grp = getgrnam($1)) == NULL) {
++						yyerror("unknown group %s", $1);
++						YYERROR;
++					}
++					$$ = grp->gr_gid;
++				}
++			} else {
++				if (ulval < 0 || ulval >= GID_MAX) {
++					yyerror("illegal gid value %ul", ulval);
++					YYERROR;
++				}
++				$$ = ulval;
++			}
++		}
++		;
++
++flag		: STRING			{
++			int f;
++
++			if ((f = parse_flags($1)) < 0) {
++				yyerror("bad flags %s", $1);
++				YYERROR;
++			}
++			$$.b1 = f;
++		}
++		;
++
++flags		: /* empty */			{ $$.b1 = 0; $$.b2 = 0; }
++		| FLAGS flag			{ $$.b1 = $2.b1; $$.b2 = PF_TH_ALL; }
++		| FLAGS flag "/" flag		{ $$.b1 = $2.b1; $$.b2 = $4.b1; }
++		| FLAGS "/" flag		{ $$.b1 = 0; $$.b2 = $3.b1; }
++		;
++
++icmpspec	: /* empty */			{ $$ = NULL; }
++		| ICMPTYPE icmp_item		{ $$ = $2; }
++		| ICMPTYPE '{' icmp_list '}'	{ $$ = $3; }
++		| ICMP6TYPE icmp6_item		{ $$ = $2; }
++		| ICMP6TYPE '{' icmp6_list '}'	{ $$ = $3; }
++		;
++
++icmp_list	: icmp_item			{ $$ = $1; }
++		| icmp_list comma icmp_item	{ $3->next = $1; $$ = $3; }
++		;
++
++icmp6_list	: icmp6_item			{ $$ = $1; }
++		| icmp6_list comma icmp6_item	{ $3->next = $1; $$ = $3; }
++		;
++
++icmp_item	: icmptype		{
++			$$ = malloc(sizeof(struct node_icmp));
++			if ($$ == NULL)
++				err(1, "icmp_item: malloc");
++			$$->type = $1;
++			$$->code = 0;
++			$$->proto = IPPROTO_ICMP;
++			$$->next = NULL;
++		}
++		| icmptype CODE STRING	{
++			const struct icmpcodeent *p;
++			u_long ulval;
++
++			if (atoul($3, &ulval) == 0) {
++				if (ulval < 0 || ulval > 255) {
++					yyerror("illegal icmp-code %d", ulval);
++					YYERROR;
++				}
++			} else {
++				if ((p = geticmpcodebyname($1, $3,
++				    AF_INET)) == NULL) {
++					yyerror("unknown icmp-code %s", $3);
++					YYERROR;
++				}
++				ulval = p->code;
++			}
++			$$ = malloc(sizeof(struct node_icmp));
++			if ($$ == NULL)
++				err(1, "icmp_item: malloc");
++			$$->type = $1;
++			$$->code = ulval + 1;
++			$$->proto = IPPROTO_ICMP;
++			$$->next = NULL;
++		}
++		;
++
++icmp6_item	: icmp6type		{
++			$$ = malloc(sizeof(struct node_icmp));
++			if ($$ == NULL)
++				err(1, "icmp_item: malloc");
++			$$->type = $1;
++			$$->code = 0;
++			$$->proto = IPPROTO_ICMPV6;
++			$$->next = NULL;
++		}
++		| icmp6type CODE STRING	{
++			const struct icmpcodeent *p;
++			u_long ulval;
++
++			if (atoul($3, &ulval) == 0) {
++				if (ulval < 0 || ulval > 255) {
++					yyerror("illegal icmp6-code %ld", ulval);
++					YYERROR;
++				}
++			} else {
++				if ((p = geticmpcodebyname($1, $3,
++				    AF_INET6)) == NULL) {
++					yyerror("unknown icmp6-code %s", $3);
++					YYERROR;
++				}
++				ulval = p->code;
++			}
++			$$ = malloc(sizeof(struct node_icmp));
++			if ($$ == NULL)
++				err(1, "icmp_item: malloc");
++			$$->type = $1;
++			$$->code = ulval + 1;
++			$$->proto = IPPROTO_ICMPV6;
++			$$->next = NULL;
++		}
++		;
++
++icmptype	: STRING			{
++			const struct icmptypeent *p;
++			u_long ulval;
++
++			if (atoul($1, &ulval) == 0) {
++				if (ulval < 0 || ulval > 255) {
++					yyerror("illegal icmp-type %d", ulval);
++					YYERROR;
++				}
++				$$ = ulval + 1;
++			} else {
++				if ((p = geticmptypebyname($1, AF_INET)) == NULL) {
++					yyerror("unknown icmp-type %s", $1);
++					YYERROR;
++				}
++				$$ = p->type + 1;
++			}
++		}
++		;
++
++icmp6type	: STRING			{
++			const struct icmptypeent *p;
++			u_long ulval;
++
++			if (atoul($1, &ulval) == 0) {
++				if (ulval < 0 || ulval > 255) {
++					yyerror("illegal icmp6-type %d", ulval);
++					YYERROR;
++				}
++				$$ = ulval + 1;
++			} else {
++				if ((p = geticmptypebyname($1, AF_INET6)) == NULL) {
++					yyerror("unknown ipv6-icmp-type %s", $1);
++					YYERROR;
++				}
++				$$ = p->type + 1;
++			}
++		}
++		;
++
++keep		: /* empty */			{
++			$$.action = 0;
++			$$.options = NULL;
++		}
++		| KEEP STATE state_opt_spec	{
++			$$.action = PF_STATE_NORMAL;
++			$$.options = $3;
++		}
++		| MODULATE STATE state_opt_spec	{
++			$$.action = PF_STATE_MODULATE;
++			$$.options = $3;
++		}
++		;
++
++state_opt_spec	: /* empty */			{ $$ = NULL; }
++		| '(' state_opt_list ')'	{ $$ = $2; }
++		;
++
++state_opt_list	: state_opt_item		{ $$ = $1; }
++		| state_opt_list comma state_opt_item {
++			$$ = $1;
++			while ($1->next)
++				$1 = $1->next;
++			$1->next = $3;
++		}
++		;
++
++state_opt_item	: MAXIMUM number		{
++			if ($2 <= 0) {
++				yyerror("illegal states max value %d", $2);
++				YYERROR;
++			}
++			$$ = calloc(1, sizeof(struct node_state_opt));
++			if ($$ == NULL)
++				err(1, "state_opt_item: calloc");
++			$$->type = PF_STATE_OPT_MAX;
++			$$->data.max_states = $2;
++			$$->next = NULL;
++		}
++		| STRING number			{
++			int i;
++
++			for (i = 0; pf_timeouts[i].name &&
++			    strcmp(pf_timeouts[i].name, $1); ++i);
++			if (!pf_timeouts[i].name) {
++				yyerror("illegal timeout name %s", $1);
++				YYERROR;
++			}
++			if (strchr(pf_timeouts[i].name, '.') == NULL) {
++				yyerror("illegal state timeout %s", $1);
++				YYERROR;
++			}
++			if ($2 < 0) {
++				yyerror("illegal timeout value %d", $2);
++				YYERROR;
++			}
++			$$ = calloc(1, sizeof(struct node_state_opt));
++			if ($$ == NULL)
++				err(1, "state_opt_item: calloc");
++			$$->type = PF_STATE_OPT_TIMEOUT;
++			$$->data.timeout.number = pf_timeouts[i].timeout;
++			$$->data.timeout.seconds = $2;
++			$$->next = NULL;
++		}
++		;
++
++fragment	: /* empty */			{ $$ = 0; }
++		| FRAGMENT			{ $$ = 1; }
++
++minttl		: /* empty */			{ $$ = 0; }
++		| MINTTL number			{
++			if ($2 < 0 || $2 > 255) {
++				yyerror("illegal min-ttl value %d", $2);
++				YYERROR;
++			}
++			$$ = $2;
++		}
++		;
++
++nodf		: /* empty */			{ $$ = 0; }
++		| NODF				{ $$ = 1; }
++		;
++
++maxmss		: /* empty */			{ $$ = 0; }
++		| MAXMSS number			{
++			if ($2 < 0) {
++				yyerror("illegal max-mss value %d", $2);
++				YYERROR;
++			}
++			$$ = $2;
++		}
++		;
++
++allowopts	: /* empty */			{ $$ = 0; }
++		| ALLOWOPTS			{ $$ = 1; }
++
++label		: /* empty */			{ $$ = NULL; }
++		| LABEL STRING			{
++			if (($$ = strdup($2)) == NULL) {
++				yyerror("rule label strdup() failed");
++				YYERROR;
++			}
++		}
++		;
++
++no		: /* empty */			{ $$ = 0; }
++		| NO				{ $$ = 1; }
++		;
++
++rport		: STRING			{
++			char *p = strchr($1, ':');
++
++			if (p == NULL) {
++				if (($$.a = getservice($1)) == -1)
++					YYERROR;
++				$$.b = $$.t = 0;
++			} else if (!strcmp(p+1, "*")) {
++				*p = 0;
++				if (($$.a = getservice($1)) == -1)
++					YYERROR;
++				$$.b = 0;
++				$$.t = PF_RPORT_RANGE;
++			} else {
++				*p++ = 0;
++				if (($$.a = getservice($1)) == -1 ||
++				    ($$.b = getservice(p)) == -1)
++					YYERROR;
++				$$.t = PF_RPORT_RANGE;
++			}
++		}
++		;
++
++redirection	: /* empty */			{ $$ = NULL; }
++		| ARROW address			{
++			$$ = malloc(sizeof(struct redirection));
++			if ($$ == NULL)
++				err(1, "redirection: malloc");
++			$$->address = $2;
++			$$->rport.a = $$->rport.b = $$->rport.t = 0;
++		}
++		| ARROW address PORT rport	{
++			$$ = malloc(sizeof(struct redirection));
++			if ($$ == NULL)
++				err(1, "redirection: malloc");
++			$$->address = $2;
++			$$->rport = $4;
++		}
++		;
++
++natrule		: no NAT interface af proto fromto redirection
++		{
++			struct pf_nat nat;
++
++			if (check_rulestate(PFCTL_STATE_NAT))
++				YYERROR;
++
++			memset(&nat, 0, sizeof(nat));
++
++			nat.no = $1;
++			nat.af = $4;
++
++			if (!nat.af) {
++				if ($6.src.host && $6.src.host->af
++				    && !$6.src.host->ifindex)
++					nat.af = $6.src.host->af;
++				else if ($6.dst.host && $6.dst.host->af
++				    && !$6.dst.host->ifindex)
++					nat.af = $6.dst.host->af;
++			}
++
++			if (nat.no) {
++				if ($7 != NULL) {
++					yyerror("'no nat' rule does not need "
++					    "'->'");
++					YYERROR;
++				}
++			} else {
++				struct node_host *n;
++
++				if ($7 == NULL || $7->address == NULL) {
++					yyerror("'nat' rule requires '-> "
++					    "address'");
++					YYERROR;
++				}
++				if (!nat.af && !$7->address->ifindex)
++					nat.af = $7->address->af;
++				n = ifa_pick_ip($7->address, nat.af);
++				if (n == NULL)
++					YYERROR;
++				if (!nat.af)
++					nat.af = n->af;
++				memcpy(&nat.raddr, &n->addr,
++				    sizeof(nat.raddr));
++				nat.proxy_port[0] = ntohs($7->rport.a);
++				nat.proxy_port[1] = ntohs($7->rport.b);
++				if (!nat.proxy_port[0] && !nat.proxy_port[1]) {
++					nat.proxy_port[0] =
++					    PF_NAT_PROXY_PORT_LOW;
++					nat.proxy_port[1] =
++					    PF_NAT_PROXY_PORT_HIGH;
++				} else if (!nat.proxy_port[1])
++					nat.proxy_port[1] = nat.proxy_port[0];
++				free($7->address);
++				free($7);
++			}
++
++			expand_nat(&nat, $3, $5, $6.src.host, $6.src.port,
++			    $6.dst.host, $6.dst.port);
++		}
++		;
++
++binatrule	: no BINAT interface af proto FROM address TO ipspec redirection
++		{
++			struct pf_binat binat;
++
++			if (check_rulestate(PFCTL_STATE_NAT))
++				YYERROR;
++
++			memset(&binat, 0, sizeof(binat));
++
++			binat.no = $1;
++			if ($3 != NULL) {
++				memcpy(binat.ifname, $3->ifname,
++				    sizeof(binat.ifname));
++				free($3);
++			}
++			binat.af = $4;
++			if ($5 != NULL) {
++				binat.proto = $5->proto;
++				free($5);
++			}
++			if ($7 != NULL && $9 != NULL && $7->af != $9->af) {
++				yyerror("binat ip versions must match");
++				YYERROR;
++			}
++			if ($7 != NULL) {
++				if ($7->next) {
++					yyerror("multiple binat ip addresses");
++					YYERROR;
++				}
++				if ($7->addr.addr_dyn != NULL) {
++					if (!binat.af) {
++						yyerror("address family (inet/"
++						    "inet6) undefined");
++						YYERROR;
++					}
++					$7->af = binat.af;
++				}
++				if (binat.af && $7->af != binat.af) {
++					yyerror("binat ip versions must match");
++					YYERROR;
++				}
++				binat.af = $7->af;
++				memcpy(&binat.saddr, &$7->addr,
++				    sizeof(binat.saddr));
++				free($7);
++			}
++			if ($9 != NULL) {
++				if ($9->next) {
++					yyerror("multiple binat ip addresses");
++					YYERROR;
++				}
++				if ($9->addr.addr_dyn != NULL) {
++					if (!binat.af) {
++						yyerror("address family (inet/"
++						    "inet6) undefined");
++						YYERROR;
++					}
++					$9->af = binat.af;
++				}
++				if (binat.af && $9->af != binat.af) {
++					yyerror("binat ip versions must match");
++					YYERROR;
++				}
++				binat.af = $9->af;
++				memcpy(&binat.daddr, &$9->addr,
++				    sizeof(binat.daddr));
++				memcpy(&binat.dmask, &$9->mask,
++				    sizeof(binat.dmask));
++				binat.dnot  = $9->not;
++				free($9);
++			}
++
++			if (binat.no) {
++				if ($10 != NULL) {
++					yyerror("'no binat' rule does not need"
++					    " '->'");
++					YYERROR;
++				}
++			} else {
++				struct node_host *n;
++
++				if ($10 == NULL || $10->address == NULL) {
++					yyerror("'binat' rule requires"
++					    " '-> address'");
++					YYERROR;
++				}
++				n = ifa_pick_ip($10->address, binat.af);
++				if (n == NULL)
++					YYERROR;
++				if (n->addr.addr_dyn != NULL) {
++					if (!binat.af) {
++						yyerror("address family (inet/"
++						    "inet6) undefined");
++						YYERROR;
++					}
++					n->af = binat.af;
++				}
++				if (binat.af && n->af != binat.af) {
++					yyerror("binat ip versions must match");
++					YYERROR;
++				}
++				binat.af = n->af;
++				memcpy(&binat.raddr, &n->addr,
++				    sizeof(binat.raddr));
++				free($10->address);
++				free($10);
++			}
++
++			pfctl_add_binat(pf, &binat);
++		}
++
++rdrrule		: no RDR interface af proto FROM ipspec TO ipspec dport redirection
++		{
++			struct pf_rdr rdr;
++
++			if (check_rulestate(PFCTL_STATE_NAT))
++				YYERROR;
++
++			memset(&rdr, 0, sizeof(rdr));
++
++			rdr.no = $1;
++			rdr.af = $4;
++			if ($7 != NULL) {
++				memcpy(&rdr.saddr, &$7->addr,
++				    sizeof(rdr.saddr));
++				memcpy(&rdr.smask, &$7->mask,
++				    sizeof(rdr.smask));
++				rdr.snot  = $7->not;
++				if (!rdr.af && !$7->ifindex)
++					rdr.af = $7->af;
++			}
++			if ($9 != NULL) {
++				memcpy(&rdr.daddr, &$9->addr,
++				    sizeof(rdr.daddr));
++				memcpy(&rdr.dmask, &$9->mask,
++				    sizeof(rdr.dmask));
++				rdr.dnot  = $9->not;
++				if (!rdr.af && !$9->ifindex)
++					rdr.af = $9->af;
++			}
++
++			rdr.dport  = $10.a;
++			rdr.dport2 = $10.b;
++			rdr.opts  |= $10.t;
++
++			if (rdr.no) {
++				if ($11 != NULL) {
++					yyerror("'no rdr' rule does not need '->'");
++					YYERROR;
++				}
++			} else {
++				struct node_host *n;
++
++				if ($11 == NULL || $11->address == NULL) {
++					yyerror("'rdr' rule requires '-> "
++					    "address'");
++					YYERROR;
++				}
++				if (!rdr.af && !$11->address->ifindex)
++					rdr.af = $11->address->af;
++				n = ifa_pick_ip($11->address, rdr.af);
++				if (n == NULL)
++					YYERROR;
++				if (!rdr.af)
++					rdr.af = n->af;
++				memcpy(&rdr.raddr, &n->addr,
++				    sizeof(rdr.raddr));
++				free($11->address);
++				rdr.rport  = $11->rport.a;
++				rdr.opts  |= $11->rport.t;
++				free($11);
++			}
++
++			expand_rdr(&rdr, $3, $5, $7, $9);
++		}
++		;
++
++dport		: /* empty */			{
++			$$.a = $$.b = $$.t = 0;
++		}
++		| PORT STRING			{
++			char *p = strchr($2, ':');
++
++			if (p == NULL) {
++				if (($$.a = getservice($2)) == -1)
++					YYERROR;
++				$$.b = $$.t = 0;
++			} else {
++				*p++ = 0;
++				if (($$.a = getservice($2)) == -1 ||
++				    ($$.b = getservice(p)) == -1)
++					YYERROR;
++				$$.t = PF_DPORT_RANGE;
++			}
++		}
++		;
++
++route		: /* empty */			{
++			$$.string = NULL;
++			$$.rt = 0;
++			$$.addr = NULL;
++			$$.af = 0;
++		}
++		| FASTROUTE {
++			$$.string = NULL;
++			$$.rt = PF_FASTROUTE;
++			$$.addr = NULL;
++		}
++		| ROUTETO '(' STRING address ')' {
++			if (($$.string = strdup($3)) == NULL) {
++				yyerror("routeto: strdup");
++				YYERROR;
++			}
++			$$.rt = PF_ROUTETO;
++			if ($4->addr.addr_dyn != NULL) {
++				yyerror("route-to does not support"
++				    " dynamic addresses");
++				YYERROR;
++			}
++			if ($4->next) {
++				yyerror("multiple route-to ip addresses");
++				YYERROR;
++			}
++			$$.addr = &$4->addr.addr;
++			$$.af = $4->af;
++		}
++		| ROUTETO STRING {
++			if (($$.string = strdup($2)) == NULL) {
++				yyerror("routeto: strdup");
++				YYERROR;
++			}
++			$$.rt = PF_ROUTETO;
++			$$.addr = NULL;
++		}
++		| DUPTO '(' STRING address ')' {
++			if (($$.string = strdup($3)) == NULL) {
++				yyerror("dupto: strdup");
++				YYERROR;
++			}
++			$$.rt = PF_DUPTO;
++			if ($4->addr.addr_dyn != NULL) {
++				yyerror("dup-to does not support"
++				    " dynamic addresses");
++				YYERROR;
++			}
++			if ($4->next) {
++				yyerror("multiple dup-to ip addresses");
++				YYERROR;
++			}
++			$$.addr = &$4->addr.addr;
++			$$.af = $4->af;
++		}
++		| DUPTO STRING {
++			if (($$.string = strdup($2)) == NULL) {
++				yyerror("dupto: strdup");
++				YYERROR;
++			}
++			$$.rt = PF_DUPTO;
++			$$.addr = NULL;
++		}
++		;
++
++timeout_spec	: STRING number
++		{
++			if (pf->opts & PF_OPT_VERBOSE)
++				printf("set timeout %s %us\n", $1, $2);
++			if (check_rulestate(PFCTL_STATE_OPTION))
++				YYERROR;
++			if (pfctl_set_timeout(pf, $1, $2) != 0) {
++				yyerror("unknown timeout %s", $1);
++				YYERROR;
++			}
++		}
++		;
++
++timeout_list	: timeout_list comma timeout_spec
++		| timeout_spec
++		;
++
++limit_spec	: STRING number
++		{
++			if (pf->opts & PF_OPT_VERBOSE)
++				printf("set limit %s %u\n", $1, $2);
++			if (check_rulestate(PFCTL_STATE_OPTION))
++				YYERROR;
++			if (pfctl_set_limit(pf, $1, $2) != 0) {
++				yyerror("unable to set limit %s %u", $1, $2);
++				YYERROR;
++			}
++		}
++
++limit_list	: limit_list comma limit_spec
++		| limit_spec
++		;
++
++comma		: ','
++		| /* empty */
++		;
++
++%%
++
++int
++yyerror(char *fmt, ...)
++{
++	va_list ap;
++	extern char *infile;
++	errors = 1;
++
++	va_start(ap, fmt);
++	fprintf(stderr, "%s:%d: ", infile, yylval.lineno);
++	vfprintf(stderr, fmt, ap);
++	fprintf(stderr, "\n");
++	va_end(ap);
++	return (0);
++}
++
++int
++rule_consistent(struct pf_rule *r)
++{
++	int problems = 0;
++
++	if (r->proto != IPPROTO_TCP && r->proto != IPPROTO_UDP &&
++	    (r->src.port_op || r->dst.port_op)) {
++		yyerror("port only applies to tcp/udp");
++		problems++;
++	}
++	if (r->proto != IPPROTO_ICMP && r->proto != IPPROTO_ICMPV6 &&
++	    (r->type || r->code)) {
++		yyerror("icmp-type/code only applies to icmp");
++		problems++;
++	}
++	if (!r->af && (r->type || r->code)) {
++		yyerror("must indicate address family with icmp-type/code");
++		problems++;
++	}
++	if ((r->proto == IPPROTO_ICMP && r->af == AF_INET6) ||
++	    (r->proto == IPPROTO_ICMPV6 && r->af == AF_INET)) {
++		yyerror("icmp version does not match address family");
++		problems++;
++	}
++	if (!(r->rule_flag & PFRULE_RETURNRST) && r->return_icmp &&
++	    ((r->af != AF_INET6  &&  (r->return_icmp>>8) != ICMP_UNREACH) ||
++	    (r->af == AF_INET6 && (r->return_icmp>>8) != ICMP6_DST_UNREACH))) {
++		yyerror("return-icmp version does not match address family");
++		problems++;
++	}
++	if (r->keep_state == PF_STATE_MODULATE && r->proto &&
++	    r->proto != IPPROTO_TCP) {
++		yyerror("modulate state can only be applied to TCP rules");
++		problems++;
++	}
++	if (r->allow_opts && r->action != PF_PASS) {
++		yyerror("allow-opts can only be specified for pass rules");
++		problems++;
++	}
++	if (!r->af && (r->src.addr.addr_dyn != NULL ||
++	    r->dst.addr.addr_dyn != NULL)) {
++		yyerror("dynamic addresses require address family (inet/inet6)");
++		problems++;
++	}
++	if (r->rule_flag & PFRULE_FRAGMENT && (r->src.port_op ||
++	    r->dst.port_op || r->flagset || r->type || r->code)) {
++		yyerror("fragments can be filtered only on IP header fields");
++		problems++;
++	}
++	if (r->rule_flag & PFRULE_RETURNRST && r->proto != IPPROTO_TCP) {
++		yyerror("return-rst can only be applied to TCP rules");
++		problems++;
++	}
++	if (r->action == PF_DROP && r->keep_state) {
++		yyerror("keep state on block rules doesn't make sense");
++		problems++;
++	}
++	return (-problems);
++}
++
++int
++nat_consistent(struct pf_nat *r)
++{
++	int problems = 0;
++
++	if (!r->af && (r->raddr.addr_dyn != NULL)) {
++		yyerror("dynamic addresses require address family (inet/inet6)");
++		problems++;
++	}
++	return (-problems);
++}
++
++int
++rdr_consistent(struct pf_rdr *r)
++{
++	int problems = 0;
++
++	if (r->proto != IPPROTO_TCP && r->proto != IPPROTO_UDP &&
++	    (r->dport || r->dport2 || r->rport)) {
++		yyerror("port only applies to tcp/udp");
++		problems++;
++	}
++	if (!r->af && (r->saddr.addr_dyn != NULL ||
++	    r->daddr.addr_dyn != NULL || r->raddr.addr_dyn != NULL)) {
++		yyerror("dynamic addresses require address family (inet/inet6)");
++		problems++;
++	}
++	return (-problems);
++}
++
++struct keywords {
++	const char	*k_name;
++	int	 k_val;
++};
++
++/* macro gore, but you should've seen the prior indentation nightmare... */
++
++#define CHECK_ROOT(T,r) \
++	do { \
++		if (r == NULL) { \
++			r = malloc(sizeof(T)); \
++			if (r == NULL) \
++				err(1, "malloc"); \
++			memset(r, 0, sizeof(T)); \
++		} \
++	} while (0)
++
++#define FREE_LIST(T,r) \
++	do { \
++		T *p, *n = r; \
++		while (n != NULL) { \
++			p = n; \
++			n = n->next; \
++			free(p); \
++		} \
++	} while (0)
++
++#define LOOP_THROUGH(T,n,r,C) \
++	do { \
++		T *n = r; \
++		while (n != NULL) { \
++			do { \
++				C; \
++			} while (0); \
++			n = n->next; \
++		} \
++	} while (0)
++
++void
++expand_label_addr(const char *name, char *label, u_int8_t af,
++    struct node_host *host)
++{
++	char tmp[PF_RULE_LABEL_SIZE];
++	char *p;
++
++	while ((p = strstr(label, name)) != NULL) {
++		tmp[0] = 0;
++
++		strlcat(tmp, label, p-label+1);
++
++		if (host->not)
++			strlcat(tmp, "! ", PF_RULE_LABEL_SIZE);
++		if (host->addr.addr_dyn != NULL) {
++			strlcat(tmp, "(", PF_RULE_LABEL_SIZE);
++			strlcat(tmp, host->addr.addr.pfa.ifname,
++			    PF_RULE_LABEL_SIZE);
++			strlcat(tmp, ")", PF_RULE_LABEL_SIZE);
++		} else if (!af || (PF_AZERO(&host->addr.addr, af) &&
++		    PF_AZERO(&host->mask, af)))
++			strlcat(tmp, "any", PF_RULE_LABEL_SIZE);
++		else {
++			char a[48];
++			int bits;
++
++			if (inet_ntop(af, &host->addr.addr, a,
++			    sizeof(a)) == NULL)
++				strlcat(a, "?", sizeof(a));
++			strlcat(tmp, a, PF_RULE_LABEL_SIZE);
++			bits = unmask(&host->mask, af);
++			a[0] = 0;
++			if ((af == AF_INET && bits < 32) ||
++			    (af == AF_INET6 && bits < 128))
++				snprintf(a, sizeof(a), "/%u", bits);
++			strlcat(tmp, a, PF_RULE_LABEL_SIZE);
++		}
++		strlcat(tmp, p+strlen(name), PF_RULE_LABEL_SIZE);
++		strncpy(label, tmp, PF_RULE_LABEL_SIZE);
++	}
++}
++
++void
++expand_label_port(const char *name, char *label, struct node_port *port)
++{
++	char tmp[PF_RULE_LABEL_SIZE];
++	char *p;
++	char a1[6], a2[6], op[13];
++
++	while ((p = strstr(label, name)) != NULL) {
++		tmp[0] = 0;
++
++		strlcat(tmp, label, p-label+1);
++
++		snprintf(a1, sizeof(a1), "%u", ntohs(port->port[0]));
++		snprintf(a2, sizeof(a2), "%u", ntohs(port->port[1]));
++		if (!port->op)
++			op[0] = 0;
++		else if (port->op == PF_OP_IRG)
++			snprintf(op, sizeof(op), "%s><%s", a1, a2);
++		else if (port->op == PF_OP_XRG)
++			snprintf(op, sizeof(op), "%s<>%s", a1, a2);
++		else if (port->op == PF_OP_EQ)
++			snprintf(op, sizeof(op), "%s", a1);
++		else if (port->op == PF_OP_NE)
++			snprintf(op, sizeof(op), "!=%s", a1);
++		else if (port->op == PF_OP_LT)
++			snprintf(op, sizeof(op), "<%s", a1);
++		else if (port->op == PF_OP_LE)
++			snprintf(op, sizeof(op), "<=%s", a1);
++		else if (port->op == PF_OP_GT)
++			snprintf(op, sizeof(op), ">%s", a1);
++		else if (port->op == PF_OP_GE)
++			snprintf(op, sizeof(op), ">=%s", a1);
++		strlcat(tmp, op, PF_RULE_LABEL_SIZE);
++		strlcat(tmp, p+strlen(name), PF_RULE_LABEL_SIZE);
++		strncpy(label, tmp, PF_RULE_LABEL_SIZE);
++	}
++}
++
++void
++expand_label_proto(const char *name, char *label, u_int8_t proto)
++{
++	char tmp[PF_RULE_LABEL_SIZE];
++	char *p;
++	struct protoent *pe;
++
++	while ((p = strstr(label, name)) != NULL) {
++		tmp[0] = 0;
++		strlcat(tmp, label, p-label+1);
++		pe = getprotobynumber(proto);
++		if (pe != NULL)
++		    strlcat(tmp, pe->p_name, PF_RULE_LABEL_SIZE);
++		else
++		    snprintf(tmp+strlen(tmp), PF_RULE_LABEL_SIZE-strlen(tmp),
++			"%u", proto);
++		strlcat(tmp, p+strlen(name), PF_RULE_LABEL_SIZE);
++		strncpy(label, tmp, PF_RULE_LABEL_SIZE);
++	}
++}
++
++void
++expand_label_nr(const char *name, char *label)
++{
++	char tmp[PF_RULE_LABEL_SIZE];
++	char *p;
++
++	while ((p = strstr(label, name)) != NULL) {
++		tmp[0] = 0;
++		strlcat(tmp, label, p-label+1);
++		snprintf(tmp+strlen(tmp), PF_RULE_LABEL_SIZE-strlen(tmp),
++		    "%u", pf->rule_nr);
++		strlcat(tmp, p+strlen(name), PF_RULE_LABEL_SIZE);
++		strncpy(label, tmp, PF_RULE_LABEL_SIZE);
++	}
++}
++
++void
++expand_label(char *label, u_int8_t af,
++    struct node_host *src_host, struct node_port *src_port,
++    struct node_host *dst_host, struct node_port *dst_port,
++    u_int8_t proto)
++{
++	expand_label_addr("$srcaddr", label, af, src_host);
++	expand_label_addr("$dstaddr", label, af, dst_host);
++	expand_label_port("$srcport", label, src_port);
++	expand_label_port("$dstport", label, dst_port);
++	expand_label_proto("$proto", label, proto);
++	expand_label_nr("$nr", label);
++}
++
++void
++expand_rule(struct pf_rule *r,
++    struct node_if *interfaces, struct node_proto *protos,
++    struct node_host *src_hosts, struct node_port *src_ports,
++    struct node_host *dst_hosts, struct node_port *dst_ports,
++    struct node_uid *uids, struct node_gid *gids,
++    struct node_icmp *icmp_types)
++{
++	int	af = r->af, nomatch = 0, added = 0;
++	char	ifname[IF_NAMESIZE];
++	char	label[PF_RULE_LABEL_SIZE];
++	u_int8_t 	flags, flagset;
++
++	strlcpy(label, r->label, sizeof(label));
++	flags = r->flags;
++	flagset = r->flagset;
++
++	CHECK_ROOT(struct node_if, interfaces);
++	CHECK_ROOT(struct node_proto, protos);
++	CHECK_ROOT(struct node_host, src_hosts);
++	CHECK_ROOT(struct node_port, src_ports);
++	CHECK_ROOT(struct node_host, dst_hosts);
++	CHECK_ROOT(struct node_port, dst_ports);
++	CHECK_ROOT(struct node_uid, uids);
++	CHECK_ROOT(struct node_gid, gids);
++	CHECK_ROOT(struct node_icmp, icmp_types);
++
++	LOOP_THROUGH(struct node_if, interface, interfaces,
++	LOOP_THROUGH(struct node_proto, proto, protos,
++	LOOP_THROUGH(struct node_icmp, icmp_type, icmp_types,
++	LOOP_THROUGH(struct node_host, src_host, src_hosts,
++	LOOP_THROUGH(struct node_port, src_port, src_ports,
++	LOOP_THROUGH(struct node_host, dst_host, dst_hosts,
++	LOOP_THROUGH(struct node_port, dst_port, dst_ports,
++	LOOP_THROUGH(struct node_uid, uid, uids,
++	LOOP_THROUGH(struct node_gid, gid, gids,
++
++		r->af = af;
++		/* for link-local IPv6 address, interface must match up */
++		if ((r->af && src_host->af && r->af != src_host->af) ||
++		    (r->af && dst_host->af && r->af != dst_host->af) ||
++		    (src_host->af && dst_host->af &&
++		    src_host->af != dst_host->af) ||
++		    (src_host->ifindex && dst_host->ifindex &&
++		    src_host->ifindex != dst_host->ifindex) ||
++		    (src_host->ifindex && if_nametoindex(interface->ifname) &&
++		    src_host->ifindex != if_nametoindex(interface->ifname)) ||
++		    (dst_host->ifindex && if_nametoindex(interface->ifname) &&
++		    dst_host->ifindex != if_nametoindex(interface->ifname)))
++			continue;
++		if (!r->af && src_host->af)
++			r->af = src_host->af;
++		else if (!r->af && dst_host->af)
++			r->af = dst_host->af;
++
++		if (if_indextoname(src_host->ifindex, ifname))
++			memcpy(r->ifname, ifname, sizeof(r->ifname));
++		else if (if_indextoname(dst_host->ifindex, ifname))
++			memcpy(r->ifname, ifname, sizeof(r->ifname));
++		else
++			memcpy(r->ifname, interface->ifname, sizeof(r->ifname));
++
++		strlcpy(r->label, label, PF_RULE_LABEL_SIZE);
++		expand_label(r->label, r->af, src_host, src_port,
++		    dst_host, dst_port, proto->proto);
++		r->ifnot = interface->not;
++		r->proto = proto->proto;
++		r->src.addr = src_host->addr;
++		r->src.mask = src_host->mask;
++		r->src.noroute = src_host->noroute;
++		r->src.not = src_host->not;
++		r->src.port[0] = src_port->port[0];
++		r->src.port[1] = src_port->port[1];
++		r->src.port_op = src_port->op;
++		r->dst.addr = dst_host->addr;
++		r->dst.mask = dst_host->mask;
++		r->dst.noroute = dst_host->noroute;
++		r->dst.not = dst_host->not;
++		r->dst.port[0] = dst_port->port[0];
++		r->dst.port[1] = dst_port->port[1];
++		r->dst.port_op = dst_port->op;
++		r->uid.op = uid->op;
++		r->uid.uid[0] = uid->uid[0];
++		r->uid.uid[1] = uid->uid[1];
++		r->gid.op = gid->op;
++		r->gid.gid[0] = gid->gid[0];
++		r->gid.gid[1] = gid->gid[1];
++		r->type = icmp_type->type;
++		r->code = icmp_type->code;
++
++		if (r->proto && r->proto != IPPROTO_TCP) {
++			r->flags = 0;
++			r->flagset = 0;
++		} else {
++			r->flags = flags;
++			r->flagset = flagset;
++		}
++		if (icmp_type->proto && r->proto != icmp_type->proto) {
++			yyerror("icmp-type mismatch");
++			nomatch++;
++		}
++
++		if (rule_consistent(r) < 0 || nomatch)
++			yyerror("skipping filter rule due to errors");
++		else {
++			r->nr = pf->rule_nr++;
++			pfctl_add_rule(pf, r);
++			added++;
++		}
++
++	)))))))));
++
++	FREE_LIST(struct node_if, interfaces);
++	FREE_LIST(struct node_proto, protos);
++	FREE_LIST(struct node_host, src_hosts);
++	FREE_LIST(struct node_port, src_ports);
++	FREE_LIST(struct node_host, dst_hosts);
++	FREE_LIST(struct node_port, dst_ports);
++	FREE_LIST(struct node_uid, uids);
++	FREE_LIST(struct node_gid, gids);
++	FREE_LIST(struct node_icmp, icmp_types);
++
++	if (!added)
++		yyerror("rule expands to no valid combination");
++}
++
++void
++expand_nat(struct pf_nat *n,
++    struct node_if *interfaces, struct node_proto *protos,
++    struct node_host *src_hosts, struct node_port *src_ports,
++    struct node_host *dst_hosts, struct node_port *dst_ports)
++{
++	char ifname[IF_NAMESIZE];
++	int af = n->af, added = 0;
++
++	CHECK_ROOT(struct node_if, interfaces);
++	CHECK_ROOT(struct node_proto, protos);
++	CHECK_ROOT(struct node_host, src_hosts);
++	CHECK_ROOT(struct node_port, src_ports);
++	CHECK_ROOT(struct node_host, dst_hosts);
++	CHECK_ROOT(struct node_port, dst_ports);
++
++	LOOP_THROUGH(struct node_if, interface, interfaces,
++	LOOP_THROUGH(struct node_proto, proto, protos,
++	LOOP_THROUGH(struct node_host, src_host, src_hosts,
++	LOOP_THROUGH(struct node_port, src_port, src_ports,
++	LOOP_THROUGH(struct node_host, dst_host, dst_hosts,
++	LOOP_THROUGH(struct node_port, dst_port, dst_ports,
++
++		n->af = af;
++		/* for link-local IPv6 address, interface must match up */
++		if ((n->af && src_host->af && n->af != src_host->af) ||
++		    (n->af && dst_host->af && n->af != dst_host->af) ||
++		    (src_host->af && dst_host->af &&
++		    src_host->af != dst_host->af) ||
++		    (src_host->ifindex && dst_host->ifindex &&
++		    src_host->ifindex != dst_host->ifindex) ||
++		    (src_host->ifindex && if_nametoindex(interface->ifname) &&
++		    src_host->ifindex != if_nametoindex(interface->ifname)) ||
++		    (dst_host->ifindex && if_nametoindex(interface->ifname) &&
++		    dst_host->ifindex != if_nametoindex(interface->ifname)))
++			continue;
++		if (!n->af && src_host->af)
++			n->af = src_host->af;
++		else if (!n->af && dst_host->af)
++			n->af = dst_host->af;
++
++		if (if_indextoname(src_host->ifindex, ifname))
++			memcpy(n->ifname, ifname, sizeof(n->ifname));
++		else if (if_indextoname(dst_host->ifindex, ifname))
++			memcpy(n->ifname, ifname, sizeof(n->ifname));
++		else
++			memcpy(n->ifname, interface->ifname, sizeof(n->ifname));
++
++		if (!n->af && n->raddr.addr_dyn != NULL) {
++			yyerror("address family (inet/inet6) undefined");
++			continue;
++		}
++
++		n->ifnot = interface->not;
++		n->proto = proto->proto;
++		n->src.addr = src_host->addr;
++		n->src.mask = src_host->mask;
++		n->src.noroute = src_host->noroute;
++		n->src.not = src_host->not;
++		n->src.port[0] = src_port->port[0];
++		n->src.port[1] = src_port->port[1];
++		n->src.port_op = src_port->op;
++		n->dst.addr = dst_host->addr;
++		n->dst.mask = dst_host->mask;
++		n->dst.noroute = dst_host->noroute;
++		n->dst.not = dst_host->not;
++		n->dst.port[0] = dst_port->port[0];
++		n->dst.port[1] = dst_port->port[1];
++		n->dst.port_op = dst_port->op;
++
++		if (nat_consistent(n) < 0)
++			yyerror("skipping nat rule due to errors");
++		else {
++			pfctl_add_nat(pf, n);
++			added++;
++		}
++
++	))))));
++
++	FREE_LIST(struct node_if, interfaces);
++	FREE_LIST(struct node_proto, protos);
++	FREE_LIST(struct node_host, src_hosts);
++	FREE_LIST(struct node_port, src_ports);
++	FREE_LIST(struct node_host, dst_hosts);
++	FREE_LIST(struct node_port, dst_ports);
++
++	if (!added)
++		yyerror("nat rule expands to no valid combinations");
++}
++
++void
++expand_rdr(struct pf_rdr *r, struct node_if *interfaces,
++    struct node_proto *protos, struct node_host *src_hosts,
++    struct node_host *dst_hosts)
++{
++	int af = r->af, added = 0;
++	char ifname[IF_NAMESIZE];
++
++	CHECK_ROOT(struct node_if, interfaces);
++	CHECK_ROOT(struct node_proto, protos);
++	CHECK_ROOT(struct node_host, src_hosts);
++	CHECK_ROOT(struct node_host, dst_hosts);
++
++	LOOP_THROUGH(struct node_if, interface, interfaces,
++	LOOP_THROUGH(struct node_proto, proto, protos,
++	LOOP_THROUGH(struct node_host, src_host, src_hosts,
++	LOOP_THROUGH(struct node_host, dst_host, dst_hosts,
++
++		r->af = af;
++		if ((r->af && src_host->af && r->af != src_host->af) ||
++		    (r->af && dst_host->af && r->af != dst_host->af) ||
++		    (src_host->af && dst_host->af &&
++		    src_host->af != dst_host->af) ||
++		    (src_host->ifindex && dst_host->ifindex &&
++		    src_host->ifindex != dst_host->ifindex) ||
++		    (src_host->ifindex && if_nametoindex(interface->ifname) &&
++		    src_host->ifindex != if_nametoindex(interface->ifname)) ||
++		    (dst_host->ifindex && if_nametoindex(interface->ifname) &&
++		    dst_host->ifindex != if_nametoindex(interface->ifname)))
++			continue;
++
++		if (!r->af && src_host->af)
++			r->af = src_host->af;
++		else if (!r->af && dst_host->af)
++			r->af = dst_host->af;
++		if (!r->af && (r->saddr.addr_dyn != NULL ||
++		    r->daddr.addr_dyn != NULL || r->raddr.addr_dyn)) {
++			yyerror("address family (inet/inet6) undefined");
++			continue;
++		}
++
++		if (if_indextoname(src_host->ifindex, ifname))
++			memcpy(r->ifname, ifname, sizeof(r->ifname));
++		else if (if_indextoname(dst_host->ifindex, ifname))
++			memcpy(r->ifname, ifname, sizeof(r->ifname));
++		else
++			memcpy(r->ifname, interface->ifname, sizeof(r->ifname));
++
++		r->proto = proto->proto;
++		r->ifnot = interface->not;
++		r->saddr = src_host->addr;
++		r->smask = src_host->mask;
++		r->daddr = dst_host->addr;
++		r->dmask = dst_host->mask;
++
++		if (rdr_consistent(r) < 0)
++			yyerror("skipping rdr rule due to errors");
++		else {
++			pfctl_add_rdr(pf, r);
++			added++;
++		}
++
++	))));
++
++	FREE_LIST(struct node_if, interfaces);
++	FREE_LIST(struct node_proto, protos);
++	FREE_LIST(struct node_host, src_hosts);
++	FREE_LIST(struct node_host, dst_hosts);
++
++	if (!added)
++		yyerror("rdr rule expands to no valid combination");
++}
++
++#undef FREE_LIST
++#undef CHECK_ROOT
++#undef LOOP_THROUGH
++
++int
++check_rulestate(int desired_state)
++{
++	if (rulestate > desired_state) {
++		yyerror("Rules must be in order: options, normalization, "
++		    "translation, filter");
++		return (1);
++	}
++	rulestate = desired_state;
++	return (0);
++}
++
++int
++kw_cmp(const void *k, const void *e)
++{
++	return (strcmp(k, ((struct keywords *)e)->k_name));
++}
++
++int
++lookup(char *s)
++{
++	/* this has to be sorted always */
++	static const struct keywords keywords[] = {
++		{ "all",	ALL},
++		{ "allow-opts",	ALLOWOPTS},
++		{ "antispoof",	ANTISPOOF},
++		{ "any",	ANY},
++		{ "binat",	BINAT},
++		{ "block",	BLOCK},
++		{ "code",	CODE},
++		{ "crop",	FRAGCROP},
++		{ "drop-ovl",	FRAGDROP},
++		{ "dup-to",	DUPTO},
++		{ "fastroute",	FASTROUTE},
++		{ "flags",	FLAGS},
++		{ "for", 	FOR},
++		{ "fragment",	FRAGMENT},
++		{ "from",	FROM},
++		{ "group",	GROUP},
++		{ "icmp-type",	ICMPTYPE},
++		{ "in",		IN},
++		{ "inet",	INET},
++		{ "inet6",	INET6},
++		{ "ipv6-icmp-type", ICMP6TYPE},
++		{ "keep",	KEEP},
++		{ "label",	LABEL},
++		{ "limit",	LIMIT},
++		{ "log",	LOG},
++		{ "log-all",	LOGALL},
++		{ "loginterface", LOGINTERFACE},
++		{ "max",	MAXIMUM},
++		{ "max-mss",	MAXMSS},
++		{ "min-ttl",	MINTTL},
++		{ "modulate",	MODULATE},
++		{ "nat",	NAT},
++		{ "no",		NO},
++		{ "no-df",	NODF},
++		{ "no-route",	NOROUTE},
++		{ "on",		ON},
++		{ "optimization", OPTIMIZATION},
++		{ "out",	OUT},
++		{ "pass",	PASS},
++		{ "port",	PORT},
++		{ "proto",	PROTO},
++		{ "quick",	QUICK},
++		{ "rdr",	RDR},
++		{ "reassemble",	FRAGNORM},
++		{ "return",	RETURN},
++		{ "return-icmp",RETURNICMP},
++		{ "return-icmp6",RETURNICMP6},
++		{ "return-rst",	RETURNRST},
++		{ "route-to",	ROUTETO},
++		{ "scrub",	SCRUB},
++		{ "set",	SET},
++		{ "state",	STATE},
++		{ "timeout",	TIMEOUT},
++		{ "to",		TO},
++		{ "ttl",	TTL},
++		{ "user",	USER},
++	};
++	const struct keywords *p;
++
++	p = bsearch(s, keywords, sizeof(keywords)/sizeof(keywords[0]),
++	    sizeof(keywords[0]), kw_cmp);
++
++	if (p) {
++		if (debug > 1)
++			fprintf(stderr, "%s: %d\n", s, p->k_val);
++		return (p->k_val);
++	} else {
++		if (debug > 1)
++			fprintf(stderr, "string: %s\n", s);
++		return (STRING);
++	}
++}
++
++#define MAXPUSHBACK	128
++
++char	*parsebuf;
++int	parseindex;
++char	pushback_buffer[MAXPUSHBACK];
++int	pushback_index = 0;
++
++int
++lgetc(FILE *fin)
++{
++	int c, next;
++
++	if (parsebuf) {
++		/* Reading characters from the parse buffer, instead of input */
++		if (parseindex >= 0) {
++			c = parsebuf[parseindex++];
++			if (c != '\0')
++				return (c);
++			parsebuf = NULL;
++		} else
++			parseindex++;
++	}
++
++	if (pushback_index)
++		return (pushback_buffer[--pushback_index]);
++
++	while ((c = getc(fin)) == '\\') {
++		next = getc(fin);
++		if (next != '\n') {
++			ungetc(next, fin);
++			break;
++		}
++		yylval.lineno = lineno;
++		lineno++;
++	}
++	return (c);
++}
++
++int
++lungetc(int c, FILE *fin)
++{
++	if (c == EOF)
++		return (EOF);
++	if (parsebuf) {
++		parseindex--;
++		if (parseindex >= 0)
++			return (c);
++	}
++	if (pushback_index < MAXPUSHBACK-1)
++		return (pushback_buffer[pushback_index++] = c);
++	else
++		return (EOF);
++}
++
++int
++findeol(void)
++{
++	int c;
++
++	parsebuf = NULL;
++	pushback_index = 0;
++
++	/* skip to either EOF or the first real EOL */
++	while (1) {
++		c = lgetc(fin);
++		if (c == '\n') {
++			lineno++;
++			break;
++		}
++		if (c == EOF)
++			break;
++	}
++	return (ERROR);
++}
++
++int
++yylex(void)
++{
++	char buf[8096], *p, *val;
++	int endc, c, next;
++	int token;
++
++top:
++	p = buf;
++	while ((c = lgetc(fin)) == ' ' || c == '\t')
++		;
++
++	yylval.lineno = lineno;
++	if (c == '#')
++		while ((c = lgetc(fin)) != '\n' && c != EOF)
++			;
++	if (c == '$' && parsebuf == NULL) {
++		while (1) {
++			if ((c = lgetc(fin)) == EOF)
++				return (0);
++			if (p + 1 >= buf + sizeof(buf) - 1) {
++				yyerror("string too long");
++				return (findeol());
++			}
++			if (isalnum(c) || c == '_') {
++				*p++ = (char)c;
++				continue;
++			}
++			*p = '\0';
++			lungetc(c, fin);
++			break;
++		}
++		val = symget(buf);
++		if (val == NULL)
++			return (ERROR);
++		parsebuf = val;
++		parseindex = 0;
++		goto top;
++	}
++
++	switch (c) {
++	case '\'':
++	case '"':
++		endc = c;
++		while (1) {
++			if ((c = lgetc(fin)) == EOF)
++				return (0);
++			if (c == endc) {
++				*p = '\0';
++				break;
++			}
++			if (c == '\n') {
++				lineno++;
++				continue;
++			}
++			if (p + 1 >= buf + sizeof(buf) - 1) {
++				yyerror("string too long");
++				return (findeol());
++			}
++			*p++ = (char)c;
++		}
++		yylval.v.string = strdup(buf);
++		if (yylval.v.string == NULL)
++			err(1, "yylex: strdup");
++		return (STRING);
++	case '=':
++		yylval.v.i = PF_OP_EQ;
++		return (PORTUNARY);
++	case '!':
++		next = lgetc(fin);
++		if (next == '=') {
++			yylval.v.i = PF_OP_NE;
++			return (PORTUNARY);
++		}
++		lungetc(next, fin);
++		break;
++	case '<':
++		next = lgetc(fin);
++		if (next == '>') {
++			yylval.v.i = PF_OP_XRG;
++			return (PORTBINARY);
++		} else  if (next == '=') {
++			yylval.v.i = PF_OP_LE;
++		} else {
++			yylval.v.i = PF_OP_LT;
++			lungetc(next, fin);
++		}
++		return (PORTUNARY);
++		break;
++	case '>':
++		next = lgetc(fin);
++		if (next == '<') {
++			yylval.v.i = PF_OP_IRG;
++			return (PORTBINARY);
++		} else  if (next == '=') {
++			yylval.v.i = PF_OP_GE;
++		} else {
++			yylval.v.i = PF_OP_GT;
++			lungetc(next, fin);
++		}
++		return (PORTUNARY);
++		break;
++	case '-':
++		next = lgetc(fin);
++		if (next == '>')
++			return (ARROW);
++		lungetc(next, fin);
++		break;
++	}
++
++#define allowed_in_string(x) \
++	(isalnum(x) || (ispunct(x) && x != '(' && x != ')' && \
++	x != '{' && x != '}' && x != '<' && x != '>' && \
++	x != '!' && x != '=' && x != '/' && x != '#' && \
++	x != ','))
++
++	if (isalnum(c) || c == ':') {
++		do {
++			*p++ = c;
++			if (p-buf >= sizeof(buf)) {
++				yyerror("string too long");
++				return (findeol());
++			}
++		} while ((c = lgetc(fin)) != EOF && (allowed_in_string(c)));
++		lungetc(c, fin);
++		*p = '\0';
++		token = lookup(buf);
++		yylval.v.string = strdup(buf);
++		if (yylval.v.string == NULL)
++			err(1, "yylex: strdup");
++		return (token);
++	}
++	if (c == '\n') {
++		yylval.lineno = lineno;
++		lineno++;
++	}
++	if (c == EOF)
++		return (0);
++	return (c);
++}
++
++int
++parse_rules(FILE *input, struct pfctl *xpf)
++{
++	fin = input;
++	pf = xpf;
++	lineno = 1;
++	errors = 0;
++	rulestate = PFCTL_STATE_NONE;
++	yyparse();
++	return (errors ? -1 : 0);
++}
++
++void
++ipmask(struct pf_addr *m, u_int8_t b)
++{
++	int i, j = 0;
++
++	for (i = 0; i < 4; i++)
++		m->addr32[i] = 0;
++
++	while (b >= 32) {
++		m->addr32[j++] = 0xffffffff;
++		b -= 32;
++	}
++	for (i = 31; i > 31-b; --i)
++		m->addr32[j] |= (1 << i);
++	if (b)
++		m->addr32[j] = htonl(m->addr32[j]);
++}
++
++/*
++ * Over-designed efficiency is a French and German concept, so how about
++ * we wait until they discover this ugliness and make it all fancy.
++ */
++int
++symset(const char *nam, const char *val)
++{
++	struct sym *sym;
++
++	sym = calloc(1, sizeof(*sym));
++	if (sym == NULL)
++		return (-1);
++	sym->nam = strdup(nam);
++	if (sym->nam == NULL) {
++		free(sym);
++		return (-1);
++	}
++	sym->val = strdup(val);
++	if (sym->val == NULL) {
++		free(sym->nam);
++		free(sym);
++		return (-1);
++	}
++	sym->next = symhead;
++	symhead = sym;
++	return (0);
++}
++
++char *
++symget(const char *nam)
++{
++	struct sym *sym;
++
++	for (sym = symhead; sym; sym = sym->next)
++		if (strcmp(nam, sym->nam) == 0)
++			return (sym->val);
++	return (NULL);
++}
++
++/* interface lookup routines */
++
++struct node_host *iftab;
++
++void
++ifa_load(void)
++{
++	struct ifaddrs *ifap, *ifa;
++	struct node_host *n = NULL, *h = NULL;
++
++	if (getifaddrs(&ifap) < 0)
++		err(1, "getifaddrs");
++
++	for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
++		if (!(ifa->ifa_addr->sa_family == AF_INET ||
++		    ifa->ifa_addr->sa_family == AF_INET6 ||
++		    ifa->ifa_addr->sa_family == AF_LINK))
++				continue;
++		n = calloc(1, sizeof(struct node_host));
++		if (n == NULL)
++			err(1, "address: calloc");
++		n->af = ifa->ifa_addr->sa_family;
++		n->addr.addr_dyn = NULL;
++		n->ifa_flags = ifa->ifa_flags;
++#ifdef __KAME__
++		if (n->af == AF_INET6 &&
++		    IN6_IS_ADDR_LINKLOCAL(&((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr) &&
++		    ((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_scope_id == 0) {
++			struct sockaddr_in6 *sin6;
++
++			sin6 = (struct sockaddr_in6 *)ifa->ifa_addr;
++			sin6->sin6_scope_id = sin6->sin6_addr.s6_addr[2] << 8 |
++			    sin6->sin6_addr.s6_addr[3];
++			sin6->sin6_addr.s6_addr[2] = 0;
++			sin6->sin6_addr.s6_addr[3] = 0;
++		}
++#endif
++		n->ifindex = 0;
++		if (n->af == AF_INET) {
++			memcpy(&n->addr.addr, &((struct sockaddr_in *)
++			    ifa->ifa_addr)->sin_addr.s_addr,
++			    sizeof(struct in_addr));
++			memcpy(&n->mask, &((struct sockaddr_in *)
++			    ifa->ifa_netmask)->sin_addr.s_addr,
++			    sizeof(struct in_addr));
++			if (ifa->ifa_broadaddr != NULL)
++				memcpy(&n->bcast, &((struct sockaddr_in *)
++				    ifa->ifa_broadaddr)->sin_addr.s_addr,
++				    sizeof(struct in_addr));
++		} else if (n->af == AF_INET6) {
++			memcpy(&n->addr.addr, &((struct sockaddr_in6 *)
++			    ifa->ifa_addr)->sin6_addr.s6_addr,
++			    sizeof(struct in6_addr));
++			memcpy(&n->mask, &((struct sockaddr_in6 *)
++			    ifa->ifa_netmask)->sin6_addr.s6_addr,
++			    sizeof(struct in6_addr));
++			if (ifa->ifa_broadaddr != NULL)
++				memcpy(&n->bcast, &((struct sockaddr_in6 *)
++				    ifa->ifa_broadaddr)->sin6_addr.s6_addr,
++				    sizeof(struct in6_addr));
++			n->ifindex = ((struct sockaddr_in6 *)
++			    ifa->ifa_addr)->sin6_scope_id;
++		}
++		if ((n->ifname = strdup(ifa->ifa_name)) == NULL) {
++			yyerror("malloc failed");
++			exit(1);
++		}
++		n->next = h;
++		h = n;
++	}
++	iftab = h;
++	freeifaddrs(ifap);
++}
++
++struct node_host *
++ifa_exists(char *ifa_name)
++{
++	struct node_host *n;
++
++	if (iftab == NULL)
++		ifa_load();
++
++	for (n = iftab; n; n = n->next) {
++		if (n->af == AF_LINK && !strncmp(n->ifname, ifa_name, IFNAMSIZ))
++			return (n);
++	}
++	return (NULL);
++}
++
++struct node_host *
++ifa_lookup(char *ifa_name, enum pfctl_iflookup_mode mode)
++{
++	struct node_host *p = NULL, *h = NULL, *n = NULL;
++	int return_all = 0;
++
++	if (!strncmp(ifa_name, "self", IFNAMSIZ))
++		return_all = 1;
++
++	if (iftab == NULL)
++		ifa_load();
++
++	for (p = iftab; p; p = p->next) {
++		if (!((p->af == AF_INET || p->af == AF_INET6)
++		    && (!strncmp(p->ifname, ifa_name, IFNAMSIZ) || return_all)))
++			continue;
++		if (mode == PFCTL_IFLOOKUP_BCAST && p->af != AF_INET)
++			continue;
++		if (mode == PFCTL_IFLOOKUP_NET && p->ifindex > 0)
++			continue;
++		n = calloc(1, sizeof(struct node_host));
++		if (n == NULL)
++			err(1, "address: calloc");
++		n->af = p->af;
++		n->addr.addr_dyn = NULL;
++		if (mode == PFCTL_IFLOOKUP_BCAST) {
++				memcpy(&n->addr.addr, &p->bcast,
++				    sizeof(struct pf_addr));
++		} else
++			memcpy(&n->addr.addr, &p->addr.addr,
++			    sizeof(struct pf_addr));
++		if (mode == PFCTL_IFLOOKUP_NET)
++			memcpy(&n->mask, &p->mask, sizeof(struct pf_addr));
++		else {
++			if (n->af == AF_INET)
++				ipmask(&n->mask, 32);
++			else
++				ipmask(&n->mask, 128);
++		}
++		n->ifindex = p->ifindex;
++		n->next = h;
++		h = n;
++	}
++	if (h == NULL && mode == PFCTL_IFLOOKUP_HOST) {
++		yyerror("no IP address found for %s", ifa_name);
++	}
++	return (h);
++}
++
++struct node_host *
++ifa_pick_ip(struct node_host *nh, u_int8_t af)
++{
++	struct node_host *h, *n = NULL;
++
++	if (af == 0 && nh && nh->next) {
++		yyerror("address family not given and translation address "
++		    "expands to multiple IPs");
++		return (NULL);
++	}
++	for (h = nh; h; h = h->next) {
++		if (h->af == af || h->af == 0 || af == 0) {
++			if (n != NULL) {
++				yyerror("translation address expands to "
++				    "multiple IPs of this address family");
++				return (NULL);
++			}
++			n = h;
++		}
++	}
++	if (n == NULL)
++		yyerror("no translation address with matching address family "
++		    "found.");
++	return (n);
++}
++
++struct node_host *
++host(char *s)
++{
++	struct node_host *h = NULL, *n;
++	struct in_addr ina;
++	struct addrinfo hints, *res0, *res;
++	int error;
++
++	if (ifa_exists(s) || !strncmp(s, "self", IFNAMSIZ)) {
++		/* interface with this name exists */
++		if ((h = ifa_lookup(s, PFCTL_IFLOOKUP_HOST)) == NULL)
++			return (NULL);
++		else
++			return (h);
++	}
++
++	if (inet_aton(s, &ina) == 1) {
++		h = calloc(1, sizeof(struct node_host));
++		if (h == NULL)
++			err(1, "address: calloc");
++		h->af = AF_INET;
++		h->addr.addr_dyn = NULL;
++		h->addr.addr.addr32[0] = ina.s_addr;
++		ipmask(&h->mask, 32);
++		return (h);
++	}
++
++	memset(&hints, 0, sizeof(hints));
++	hints.ai_family = AF_INET6;
++	hints.ai_socktype = SOCK_DGRAM; /*dummy*/
++	hints.ai_flags = AI_NUMERICHOST;
++	if (getaddrinfo(s, "0", &hints, &res) == 0) {
++		n = calloc(1, sizeof(struct node_host));
++		if (n == NULL)
++			err(1, "address: calloc");
++		n->af = AF_INET6;
++		n->addr.addr_dyn = NULL;
++		memcpy(&n->addr.addr,
++		    &((struct sockaddr_in6 *)res->ai_addr)->sin6_addr,
++		    sizeof(n->addr.addr));
++		n->ifindex = ((struct sockaddr_in6 *)res->ai_addr)->sin6_scope_id;
++		ipmask(&n->mask, 128);
++		freeaddrinfo(res);
++		return (n);
++	}
++
++	memset(&hints, 0, sizeof(hints));
++	hints.ai_family = PF_UNSPEC;
++	hints.ai_socktype = SOCK_STREAM; /* DUMMY */
++	error = getaddrinfo(s, NULL, &hints, &res0);
++	if (error) {
++		yyerror("cannot resolve %s: %s",
++		    s, gai_strerror(error));
++		return (NULL);
++	}
++	for (res = res0; res; res = res->ai_next) {
++		if (res->ai_family != AF_INET &&
++		    res->ai_family != AF_INET6)
++			continue;
++		n = calloc(1, sizeof(struct node_host));
++		if (n == NULL)
++			err(1, "address: calloc");
++		n->af = res->ai_family;
++		n->addr.addr_dyn = NULL;
++		if (res->ai_family == AF_INET) {
++			memcpy(&n->addr.addr,
++			    &((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr,
++			    sizeof(struct in_addr));
++			ipmask(&n->mask, 32);
++		} else {
++			memcpy(&n->addr.addr,
++			    &((struct sockaddr_in6 *)res->ai_addr)->sin6_addr.s6_addr,
++			    sizeof(struct in6_addr));
++			n->ifindex =
++			    ((struct sockaddr_in6 *)res->ai_addr)->sin6_scope_id;
++			ipmask(&n->mask, 128);
++		}
++		n->next = h;
++		h = n;
++	}
++	freeaddrinfo(res0);
++	if (h == NULL) {
++		yyerror("no IP address found for %s", s);
++		return (NULL);
++	}
++	return (h);
++}
++
++int
++atoul(char *s, u_long *ulvalp)
++{
++	u_long ulval;
++	char *ep;
++
++	errno = 0;
++	ulval = strtoul(s, &ep, 0);
++	if (s[0] == '\0' || *ep != '\0')
++		return (-1);
++	if (errno == ERANGE && ulval == ULONG_MAX)
++		return (-1);
++	*ulvalp = ulval;
++	return (0);
++}
++
++int
++getservice(char *n)
++{
++	struct servent *s;
++	u_long ulval;
++
++	if (atoul(n, &ulval) == 0) {
++		if (ulval < 0 || ulval > 65535) {
++			yyerror("illegal port value %d", ulval);
++			return (-1);
++		}
++		return (htons(ulval));
++	} else {
++		s = getservbyname(n, "tcp");
++		if (s == NULL)
++			s = getservbyname(n, "udp");
++		if (s == NULL) {
++			yyerror("unknown port %s", n);
++			return (-1);
++		}
++		return (s->s_port);
++	}
++}
+diff -Nur /usr/src/sbin.orig/pfctl/pf_print_state.c /usr/src/sbin/pfctl/pf_print_state.c
+--- /usr/src/sbin.orig/pfctl/pf_print_state.c	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pfctl/pf_print_state.c	Fri Jul 11 07:51:42 2025
+@@ -0,0 +1,251 @@
++/*
++ * Copyright (c) 2001 Daniel Hartmeier
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *    - Redistributions of source code must retain the above copyright
++ *      notice, this list of conditions and the following disclaimer.
++ *    - Redistributions in binary form must reproduce the above
++ *      copyright notice, this list of conditions and the following
++ *      disclaimer in the documentation and/or other materials provided
++ *      with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ *	$OpenBSD: pf_print_state.c,v 1.5 2002/07/31 20:19:15 henning Exp $
++ */
++
++#include <sys/types.h>
++#include <sys/socket.h>
++
++#include <net/if.h>
++#include <netinet/in.h>
++#include <netinet/in_systm.h>
++#include <netinet/ip.h>
++#include <netinet/ip_icmp.h>
++#include <netinet/icmp6.h>
++#define TCPSTATES
++#include <netinet/tcp_fsm.h>
++#include <net/pfvar.h>
++#include <arpa/inet.h>
++
++#include <machine/limits.h>
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <ctype.h>
++#include <netdb.h>
++#include <stdarg.h>
++#include <errno.h>
++#include <err.h>
++
++#include "pfctl_parser.h"
++#include "pf_print_state.h"
++
++void	print_name(struct pf_addr *, struct pf_addr *, int);
++
++int
++unmask(struct pf_addr *m, u_int8_t af)
++{
++	int i = 31, j = 0, b = 0, msize;
++	u_int32_t tmp;
++
++	if (af == AF_INET)
++		msize = 1;
++	else
++		msize = 4;
++	while (j < msize && m->addr32[j] == 0xffffffff) {
++		b += 32;
++		j++;
++	}
++	if (j < msize) {
++		tmp = ntohl(m->addr32[j]);
++		for (i = 31; tmp & (1 << i); --i)
++			b++;
++	}
++	return (b);
++}
++
++void
++print_addr(struct pf_addr_wrap *addr, struct pf_addr *mask, u_int8_t af)
++{
++	char buf[48];
++
++	if (addr->addr_dyn != NULL)
++		printf("(%s)", addr->addr.pfa.ifname);
++	else {
++		if (inet_ntop(af, &addr->addr, buf, sizeof(buf)) == NULL)
++			printf("?");
++		else
++			printf("%s", buf);
++	}
++	if (mask != NULL) {
++		int bits = unmask(mask, af);
++
++		if (bits != (af == AF_INET ? 32 : 128))
++			printf("/%u", bits);
++	}
++}
++
++void
++print_name(struct pf_addr *addr, struct pf_addr *mask, int af)
++{
++	char host[NI_MAXHOST];
++
++	strlcpy(host, "?", sizeof(host));
++	switch (af) {
++	case AF_INET: {
++		struct sockaddr_in sin;
++
++		memset(&sin, 0, sizeof(sin));
++		sin.sin_len = sizeof(sin);
++		sin.sin_family = AF_INET;
++		sin.sin_addr = addr->v4;
++		getnameinfo((struct sockaddr *)&sin, sin.sin_len,
++		    host, sizeof(host), NULL, 0, NI_NOFQDN);
++		break;
++	}
++	case AF_INET6: {
++		struct sockaddr_in6 sin6;
++
++		memset(&sin6, 0, sizeof(sin6));
++		sin6.sin6_len = sizeof(sin6);
++		sin6.sin6_family = AF_INET6;
++		sin6.sin6_addr = addr->v6;
++		getnameinfo((struct sockaddr *)&sin6, sin6.sin6_len,
++		    host, sizeof(host), NULL, 0, NI_NOFQDN);
++		break;
++	}
++	}
++	printf("%s", host);
++}
++
++void
++print_host(struct pf_state_host *h, u_int8_t af, int opts)
++{
++	u_int16_t p = ntohs(h->port);
++
++	if (opts & PF_OPT_USEDNS)
++		print_name(&h->addr, NULL, af);
++	else {
++		struct pf_addr_wrap aw;
++
++		aw.addr = h->addr;
++		aw.addr_dyn = NULL;
++		print_addr(&aw, NULL, af);
++	}
++
++	if (p) {
++		if (af == AF_INET)
++			printf(":%u", p);
++		else
++			printf("[%u]", p);
++	}
++}
++
++void
++print_seq(struct pf_state_peer *p)
++{
++	if (p->seqdiff)
++		printf("[%u + %u](+%u)", p->seqlo, p->seqhi - p->seqlo,
++		    p->seqdiff);
++	else
++		printf("[%u + %u]", p->seqlo, p->seqhi - p->seqlo);
++}
++
++void
++print_state(struct pf_state *s, int opts)
++{
++	struct pf_state_peer *src, *dst;
++	struct protoent *p;
++	u_int8_t hrs, min, sec;
++
++	if (s->direction == PF_OUT) {
++		src = &s->src;
++		dst = &s->dst;
++	} else {
++		src = &s->dst;
++		dst = &s->src;
++	}
++	if ((p = getprotobynumber(s->proto)) != NULL)
++		printf("%s ", p->p_name);
++	else
++		printf("%u ", s->proto);
++	if (PF_ANEQ(&s->lan.addr, &s->gwy.addr, s->af) ||
++	    (s->lan.port != s->gwy.port)) {
++		print_host(&s->lan, s->af, opts);
++		if (s->direction == PF_OUT)
++			printf(" -> ");
++		else
++			printf(" <- ");
++	}
++	print_host(&s->gwy, s->af, opts);
++	if (s->direction == PF_OUT)
++		printf(" -> ");
++	else
++		printf(" <- ");
++	print_host(&s->ext, s->af, opts);
++
++	printf("    ");
++	if (s->proto == IPPROTO_TCP) {
++		if (src->state <= TCPS_TIME_WAIT &&
++		    dst->state <= TCPS_TIME_WAIT) {
++			printf("   %s:%s\n", tcpstates[src->state],
++			    tcpstates[dst->state]);
++		} else {
++			printf("   <BAD STATE LEVELS>\n");
++		}
++		if (opts & PF_OPT_VERBOSE) {
++			printf("   ");
++			print_seq(src);
++			printf("  ");
++			print_seq(dst);
++			printf("\n");
++		}
++	} else if (s->proto == IPPROTO_UDP && src->state < PFUDPS_NSTATES &&
++	    dst->state < PFUDPS_NSTATES) {
++		const char *states[] = PFUDPS_NAMES;
++		printf("   %s:%s\n", states[src->state], states[dst->state]);
++	} else if (s->proto != IPPROTO_ICMP && src->state < PFOTHERS_NSTATES &&
++	    dst->state < PFOTHERS_NSTATES) {
++		/* XXX ICMP doesn't really have state levels */
++		const char *states[] = PFOTHERS_NAMES;
++		printf("   %s:%s\n", states[src->state], states[dst->state]);
++	} else {
++		printf("   %u:%u\n", src->state, dst->state);
++	}
++
++	if (opts & PF_OPT_VERBOSE) {
++		sec = s->creation % 60;
++		s->creation /= 60;
++		min = s->creation % 60;
++		s->creation /= 60;
++		hrs = s->creation;
++		printf("   age %.2u:%.2u:%.2u", hrs, min, sec);
++		sec = s->expire % 60;
++		s->expire /= 60;
++		min = s->expire % 60;
++		s->expire /= 60;
++		hrs = s->expire;
++		printf(", expires in %.2u:%.2u:%.2u", hrs, min, sec);
++		printf(", %u pkts, %u bytes", s->packets, s->bytes);
++		if (s->rule.nr != USHRT_MAX)
++			printf(", rule %u", s->rule.nr);
++		printf("\n");
++	}
++}
+diff -Nur /usr/src/sbin.orig/pfctl/pf_print_state.h /usr/src/sbin/pfctl/pf_print_state.h
+--- /usr/src/sbin.orig/pfctl/pf_print_state.h	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pfctl/pf_print_state.h	Fri Jul 11 07:51:42 2025
+@@ -0,0 +1,40 @@
++/*
++ * Copyright (c) 2001 Daniel Hartmeier
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *    - Redistributions of source code must retain the above copyright
++ *      notice, this list of conditions and the following disclaimer.
++ *    - Redistributions in binary form must reproduce the above
++ *      copyright notice, this list of conditions and the following
++ *      disclaimer in the documentation and/or other materials provided
++ *      with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ * $OpenBSD: pf_print_state.h,v 1.4 2002/07/19 12:31:59 dhartmei Exp $
++ */
++
++#ifndef _PF_PRINT_STATE_H_
++#define _PF_PRINT_STATE_H_
++
++void	print_addr(struct pf_addr_wrap *, struct pf_addr *, u_int8_t);
++void	print_host(struct pf_state_host *, u_int8_t, int);
++void	print_seq(struct pf_state_peer *);
++void	print_state(struct pf_state *s, int);
++
++#endif /* _PF_PRINT_STATE_H_ */
+diff -Nur /usr/src/sbin.orig/pfctl/pfctl.8 /usr/src/sbin/pfctl/pfctl.8
+--- /usr/src/sbin.orig/pfctl/pfctl.8	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pfctl/pfctl.8	Fri Jul 11 07:51:42 2025
+@@ -0,0 +1,204 @@
++.\" $OpenBSD: pfctl.8,v 1.52 2002/09/18 07:33:47 deraadt Exp $
++.\"
++.\" Copyright (c) 2001 Kjell Wooding.  All rights reserved.
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\" 1. Redistributions of source code must retain the above copyright
++.\"    notice, this list of conditions and the following disclaimer.
++.\" 2. Redistributions in binary form must reproduce the above copyright
++.\"    notice, this list of conditions and the following disclaimer in the
++.\"    documentation and/or other materials provided with the distribution.
++.\" 3. The name of the author may not be used to endorse or promote products
++.\"    derived from this software without specific prior written permission.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++.\" IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++.\" OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++.\" IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++.\" NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++.\" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++.\" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++.\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++.\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++.\"
++.Dd June 24, 2001
++.Dt PFCTL 8
++.Os
++.Sh NAME
++.Nm pfctl
++.Nd control the packet filter (PF) and network address translation (NAT) device
++.Sh SYNOPSIS
++.Nm pfctl
++.Op Fl deqhnNrRvzO
++.Op Fl F Ar modifier
++.Op Fl f Ar file
++.Op Fl k Ar host
++.Op Fl s Ar modifier
++.Op Fl x Ar level
++.Sh DESCRIPTION
++The
++.Nm
++utility communicates with the packet filter device using the
++ioctl interface described in
++.Xr pf 4 .
++It allows rule set and parameter configuration and retrieval of status
++information from the packet filter.
++.Pp
++Packet filtering restricts the types of packets that pass through
++network interfaces entering or leaving the host based on filter
++rules as described in
++.Xr pf.conf 5 .
++The packet filter can also replace addresses and ports of packets.
++Replacing source addresses and ports of outgoing packets is called
++NAT (Network Address Translation) and is used to connect an internal
++network (usually reserved address space) to an external one (the
++Internet) by making all connections to external hosts appear to
++come from the gateway.
++Replacing destination addresses and ports of incoming packets
++is used to redirect connections to different hosts and/or ports.
++A combination of both translations, bidirectional NAT, is also
++supported.
++Translation rules are described in
++.Xr pf.conf 5 .
++.Pp
++When the variable pf=YES is set in
++.Xr rc.conf 8 ,
++the rule file specified with the variable pf_rules
++is loaded automatically by the
++.Xr rc 8
++scripts and the packet filter is enabled.
++.Pp
++The packet filter does not itself forward packets between interfaces.
++Forwarding can be enabled using the
++.Xr sysctl 8
++variable
++.Li net.inet.ip.forwarding=1 ,
++permanently in
++.Xr sysctl.conf 5 .
++.Pp
++The
++.Nm
++utility provides several commands.
++The options are as follows:
++.Bl -tag -width Ds
++.It Fl d
++Disable the packet filter.
++.It Fl e
++Enable the packet filter.
++.It Fl f Ar file
++Load rule file. This file may contain scrub, nat, and filter
++rules, in that order.
++.It Fl F Ar modifier
++Flush one of the following.
++Modifier name may be abbreviated:
++.Bl -tag -width "F rules " -compact
++.It Fl F Ar nat
++Flush the NAT rules.
++.It Fl F Ar rules
++Flush the filter rules.
++.It Fl F Ar state
++Flush the state table (NAT and filter).
++.It Fl F Ar info
++Flush the filter information (statistics that are not bound to rules).
++.It Fl F Ar all
++Flush all of the above.
++.El
++.It Fl k Ar host
++Kill all of the state entries from the specified host.
++A second
++.Fl k Ar host
++option may be specified, which will kill all the state entries
++from the first host to the second host.
++.Bd -literal
++Example:
++      Kill all of the state entries from host
++    # pfctl -k host
++
++      Kill all of the state entries from host1 to host2
++    # pfctl -k host1 -k host2
++.Ed
++.It Fl h
++Help.
++.It Fl n
++Do not actually load rules, just parse them.
++.It Fl N
++Load only the NAT rules present in the rule file. Filter rules and options are
++ignored
++.It Fl q
++Only print errors and warnings.
++.It Fl r
++Perform reverse DNS lookups on states when displaying them.
++.It Fl R
++Load only the filter rules present in the rule file. NAT rules and options are
++ignored.
++.It Fl O
++Load only the options present in the rule file. Filter and NAT rules are
++ignored
++.It Fl s Ar modifier
++Show filter parameters.
++Modifier names may be abbreviated:
++.Bl -tag -width "s rules " -compact
++.It Fl s Ar nat
++Show the currently loaded NAT rules.
++.It Fl s Ar rules
++Show the currently loaded filter rules.
++When used together with -v, the per-rule statistics (number of evaluations,
++packets and bytes) are also shown.
++Note that the 'skip step' optimization done automatically by the kernel
++will skip evaluation of rules where possible.
++Packets passed statefully are counted in the rule that created the state
++(even though the rule isn't evaluated more than once for the entire
++connection).
++.It Fl s Ar state
++Show the contents of the state table.
++.It Fl s Ar info
++Show filter information (statistics and counters).
++.It Fl s Ar labels
++Show per-rule statistics (in terse format) of filter rules with labels,
++useful for accounting.
++.It Fl s Ar timeouts
++Show the current global timeouts.
++.It Fl s Ar memory
++Show the current pool memory hard limits.
++.It Fl s Ar all
++Show all of the above.
++.El
++.It Fl v
++Produce more verbose output.
++.It Fl x Ar level
++Set the debug level to one of the following.
++Level names may be abbreviated:
++.Bl -tag -width "x urgent " -compact
++.It Fl x Ar none
++Don't generate debug messages.
++.It Fl x Ar urgent
++Generate debug messages only for serious errors.
++.It Fl x Ar misc
++Generate debug messages for various errors.
++.El
++.It Fl z
++Clear per-rule statistics.
++.El
++.Sh FILES
++.Bl -tag -width "/etc/pf.conf" -compact
++.It Pa /etc/pf.conf
++Packet filter rules file.
++.El
++.Sh SEE ALSO
++.Xr pf 4 ,
++.Xr pf.conf 5 ,
++.Xr ftp-proxy 8 ,
++.Xr rc 8 ,
++.Xr rc.conf 8 ,
++.Xr sysctl 8 ,
++.Xr sysctl.conf 5
++.Sh HISTORY
++The
++.Nm
++program and the
++.Xr pf 4
++filter mechanism first appeared in
++.Ox 3.0 .
+diff -Nur /usr/src/sbin.orig/pfctl/pfctl.c /usr/src/sbin/pfctl/pfctl.c
+--- /usr/src/sbin.orig/pfctl/pfctl.c	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pfctl/pfctl.c	Fri Jul 11 17:13:29 2025
+@@ -0,0 +1,995 @@
++/*
++ * Copyright (c) 2001 Daniel Hartmeier
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *    - Redistributions of source code must retain the above copyright
++ *      notice, this list of conditions and the following disclaimer.
++ *    - Redistributions in binary form must reproduce the above
++ *      copyright notice, this list of conditions and the following
++ *      disclaimer in the documentation and/or other materials provided
++ *      with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ *	$OpenBSD: pfctl.c,v 1.83 2002/07/05 14:07:32 henning Exp $
++ */
++
++#include <sys/types.h>
++#include <sys/ioctl.h>
++#include <sys/socket.h>
++
++#include <net/if.h>
++#include <netinet/in.h>
++#include <net/pfvar.h>
++#include <arpa/inet.h>
++
++#include <err.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <limits.h>
++#include <netdb.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++#include "pfctl_parser.h"
++#include "pf_print_state.h"
++
++void	 usage(void);
++int	 pfctl_enable(int, int);
++int	 pfctl_disable(int, int);
++int	 pfctl_clear_stats(int, int);
++int	 pfctl_clear_rules(int, int);
++int	 pfctl_clear_nat(int, int);
++int	 pfctl_clear_states(int, int);
++int	 pfctl_kill_states(int, int);
++int	 pfctl_show_rules(int, int, int);
++int	 pfctl_show_nat(int);
++int	 pfctl_show_states(int, u_int8_t, int);
++int	 pfctl_show_status(int);
++int	 pfctl_show_timeouts(int);
++int	 pfctl_show_limits(int);
++int	 pfctl_rules(int, char *, int);
++int	 pfctl_debug(int, u_int32_t, int);
++int	 pfctl_clear_rule_counters(int, int);
++
++int	 opts = 0;
++char	*clearopt;
++char	*rulesopt;
++char	*showopt;
++char	*debugopt;
++int	 state_killers;
++char	*state_kill[2];
++int	 loadopt = PFCTL_FLAG_ALL;
++
++char	*infile;
++
++static const struct {
++	const char	*name;
++	int		index;
++} pf_limits[] = {
++	{ "states",	PF_LIMIT_STATES },
++	{ "frags",	PF_LIMIT_FRAGS },
++	{ NULL,		0 }
++};
++
++struct pf_hint {
++	const char	*name;
++	int		timeout;
++};
++static const struct pf_hint pf_hint_normal[] = {
++	{ "tcp.first",		2 * 60 },
++	{ "tcp.opening",	30 },
++	{ "tcp.established",	24 * 60 * 60 },
++	{ "tcp.closing",	15 * 60 },
++	{ "tcp.finwait",	45 },
++	{ "tcp.closed",		90 },
++	{ NULL,			0 }
++};
++static const struct pf_hint pf_hint_satellite[] = {
++	{ "tcp.first",		3 * 60 },
++	{ "tcp.opening",	30 + 5 },
++	{ "tcp.established",	24 * 60 * 60 },
++	{ "tcp.closing",	15 * 60 + 5 },
++	{ "tcp.finwait",	45 + 5 },
++	{ "tcp.closed",		90 + 5 },
++	{ NULL,			0 }
++};
++static const struct pf_hint pf_hint_conservative[] = {
++	{ "tcp.first",		60 * 60 },
++	{ "tcp.opening",	15 * 60 },
++	{ "tcp.established",	5 * 24 * 60 * 60 },
++	{ "tcp.closing",	60 * 60 },
++	{ "tcp.finwait",	10 * 60 },
++	{ "tcp.closed",		3 * 60 },
++	{ NULL,			0 }
++};
++static const struct pf_hint pf_hint_aggressive[] = {
++	{ "tcp.first",		30 },
++	{ "tcp.opening",	5 },
++	{ "tcp.established",	5 * 60 * 60 },
++	{ "tcp.closing",	60 },
++	{ "tcp.finwait",	30 },
++	{ "tcp.closed",		30 },
++	{ NULL,			0 }
++};
++
++static const struct {
++	const char *name;
++	const struct pf_hint *hint;
++} pf_hints[] = {
++	{ "normal",		pf_hint_normal },
++	{ "default",		pf_hint_normal },
++	{ "satellite",		pf_hint_satellite },
++	{ "high-latency",	pf_hint_satellite },
++	{ "conservative",	pf_hint_conservative },
++	{ "aggressive",		pf_hint_aggressive },
++	{ NULL,			NULL }
++};
++
++void
++usage(void)
++{
++	extern char *__progname;
++
++	fprintf(stderr, "usage: %s [-deqhnNrROvz] [-f file] ", __progname);
++	fprintf(stderr, "[-F modifier] [-k host]\n");
++	fprintf(stderr, "             ");
++	fprintf(stderr, "[-s modifier] [-x level]\n");
++	exit(1);
++}
++
++int
++pfctl_enable(int dev, int opts)
++{
++	if (ioctl(dev, DIOCSTART)) {
++		if (errno == EEXIST)
++			errx(1, "pf already enabled");
++		else
++			err(1, "DIOCSTART");
++	}
++	if ((opts & PF_OPT_QUIET) == 0)
++		fprintf(stderr, "pf enabled\n");
++	return (0);
++}
++
++int
++pfctl_disable(int dev, int opts)
++{
++	if (ioctl(dev, DIOCSTOP)) {
++		if (errno == ENOENT)
++			errx(1, "pf not enabled");
++		else
++			err(1, "DIOCSTOP");
++	}
++	if ((opts & PF_OPT_QUIET) == 0)
++		fprintf(stderr, "pf disabled\n");
++	return (0);
++}
++
++int
++pfctl_clear_stats(int dev, int opts)
++{
++	if (ioctl(dev, DIOCCLRSTATUS))
++		err(1, "DIOCCLRSTATUS");
++	if ((opts & PF_OPT_QUIET) == 0)
++		fprintf(stderr, "pf: statistics cleared\n");
++	return (0);
++}
++
++int
++pfctl_clear_rules(int dev, int opts)
++{
++	struct pfioc_rule pr;
++
++	if (ioctl(dev, DIOCBEGINRULES, &pr.ticket))
++		err(1, "DIOCBEGINRULES");
++	else if (ioctl(dev, DIOCCOMMITRULES, &pr.ticket))
++		err(1, "DIOCCOMMITRULES");
++	if ((opts & PF_OPT_QUIET) == 0)
++		fprintf(stderr, "rules cleared\n");
++	return (0);
++}
++
++int
++pfctl_clear_nat(int dev, int opts)
++{
++	struct pfioc_nat pn;
++	struct pfioc_binat pb;
++	struct pfioc_rdr pr;
++
++	if (ioctl(dev, DIOCBEGINNATS, &pn.ticket))
++		err(1, "DIOCBEGINNATS");
++	else if (ioctl(dev, DIOCCOMMITNATS, &pn.ticket))
++		err(1, "DIOCCOMMITNATS");
++	if (ioctl(dev, DIOCBEGINBINATS, &pb.ticket))
++		err(1, "DIOCBEGINBINATS");
++	else if (ioctl(dev, DIOCCOMMITBINATS, &pb.ticket))
++		err(1, "DIOCCOMMITBINATS");
++	else if (ioctl(dev, DIOCBEGINRDRS, &pr.ticket))
++		err(1, "DIOCBEGINRDRS");
++	else if (ioctl(dev, DIOCCOMMITRDRS, &pr.ticket))
++		err(1, "DIOCCOMMITRDRS");
++	if ((opts & PF_OPT_QUIET) == 0)
++		fprintf(stderr, "nat cleared\n");
++	return (0);
++}
++
++int
++pfctl_clear_states(int dev, int opts)
++{
++	if (ioctl(dev, DIOCCLRSTATES))
++		err(1, "DIOCCLRSTATES");
++	if ((opts & PF_OPT_QUIET) == 0)
++		fprintf(stderr, "states cleared\n");
++	return (0);
++}
++
++int
++pfctl_kill_states(int dev, int opts)
++{
++	struct pfioc_state_kill psk;
++	struct addrinfo *res[2], *resp[2];
++	struct sockaddr last_src, last_dst;
++	int killed, sources, dests;
++	int ret_ga;
++
++	killed = sources = dests = 0;
++
++	memset(&psk, 0, sizeof(psk));
++	memset(&psk.psk_src.mask, 0xff, sizeof(psk.psk_src.mask));
++	memset(&last_src, 0xff, sizeof(last_src));
++	memset(&last_dst, 0xff, sizeof(last_dst));
++
++	if ((ret_ga = getaddrinfo(state_kill[0], NULL, NULL, &res[0]))) {
++		errx(1, "%s", gai_strerror(ret_ga));
++		/* NOTREACHED */
++	}
++	for (resp[0] = res[0]; resp[0]; resp[0] = resp[0]->ai_next) {
++		if (resp[0]->ai_addr == NULL)
++			continue;
++		/* We get lots of duplicates.  Catch the easy ones */
++		if (memcmp(&last_src, resp[0]->ai_addr, sizeof(last_src)) == 0)
++			continue;
++		last_src = *(struct sockaddr *)resp[0]->ai_addr;
++
++		psk.psk_af = resp[0]->ai_family;
++		sources++;
++
++		if (psk.psk_af == AF_INET)
++			psk.psk_src.addr.addr.v4 =
++			    ((struct sockaddr_in *)resp[0]->ai_addr)->sin_addr;
++		else if (psk.psk_af == AF_INET6)
++			psk.psk_src.addr.addr.v6 =
++			    ((struct sockaddr_in6 *)resp[0]->ai_addr)->
++			    sin6_addr;
++		else
++			errx(1, "Unknown address family!?!?!");
++
++		if (state_killers > 1) {
++			dests = 0;
++			memset(&psk.psk_dst.mask, 0xff,
++			    sizeof(psk.psk_dst.mask));
++			memset(&last_dst, 0xff, sizeof(last_dst));
++			if ((ret_ga = getaddrinfo(state_kill[1], NULL, NULL,
++			    &res[1]))) {
++				errx(1, "%s", gai_strerror(ret_ga));
++				/* NOTREACHED */
++			}
++			for (resp[1] = res[1]; resp[1];
++			    resp[1] = resp[1]->ai_next) {
++				if (resp[1]->ai_addr == NULL)
++					continue;
++				if (psk.psk_af != resp[1]->ai_family)
++					continue;
++
++				if (memcmp(&last_dst, resp[1]->ai_addr,
++				    sizeof(last_dst)) == 0)
++					continue;
++				last_dst = *(struct sockaddr *)resp[1]->ai_addr;
++
++				dests++;
++
++				if (psk.psk_af == AF_INET)
++					psk.psk_dst.addr.addr.v4 =
++					    ((struct sockaddr_in *)resp[1]->
++					    ai_addr)->sin_addr;
++				else if (psk.psk_af == AF_INET6)
++					psk.psk_dst.addr.addr.v6 =
++					    ((struct sockaddr_in6 *)resp[1]->
++					    ai_addr)->sin6_addr;
++				else
++					errx(1, "Unknown address family!?!?!");
++
++				if (ioctl(dev, DIOCKILLSTATES, &psk))
++					err(1, "DIOCKILLSTATES");
++				killed += psk.psk_af;
++				/* fixup psk.psk_af */
++				psk.psk_af = resp[1]->ai_family;
++			}
++		} else {
++			if (ioctl(dev, DIOCKILLSTATES, &psk))
++				err(1, "DIOCKILLSTATES");
++			killed += psk.psk_af;
++			/* fixup psk.psk_af */
++			psk.psk_af = res[0]->ai_family;
++		}
++	}
++
++	freeaddrinfo(res[0]);
++	if (res[1])
++		freeaddrinfo(res[1]);
++
++	if ((opts & PF_OPT_QUIET) == 0)
++		fprintf(stderr, "killed %d states from %d sources and %d "
++		    "destinations\n", killed, sources, dests);
++	return (0);
++}
++
++int
++pfctl_show_rules(int dev, int opts, int format)
++{
++	struct pfioc_rule pr;
++	u_int32_t nr, mnr;
++
++	if (ioctl(dev, DIOCGETRULES, &pr)) {
++		warnx("DIOCGETRULES");
++		return (-1);
++	}
++	mnr = pr.nr;
++	for (nr = 0; nr < mnr; ++nr) {
++		pr.nr = nr;
++		if (ioctl(dev, DIOCGETRULE, &pr)) {
++			warnx("DIOCGETRULE");
++			return (-1);
++		}
++		switch (format) {
++		case 1:
++			if (pr.rule.label[0]) {
++				if (opts & PF_OPT_VERBOSE)
++					print_rule(&pr.rule);
++				else
++					printf("%s ", pr.rule.label);
++				printf("%llu %llu %llu\n",
++				    pr.rule.evaluations, pr.rule.packets,
++				    pr.rule.bytes);
++			}
++			break;
++		default:
++			print_rule(&pr.rule);
++			if (opts & PF_OPT_VERBOSE)
++				printf("[ Evaluations: %-8llu  Packets: %-8llu  "
++				    "Bytes: %-10llu  States: %-6u]\n\n",
++				    pr.rule.evaluations, pr.rule.packets,
++				    pr.rule.bytes, pr.rule.states);
++		}
++	}
++	return (0);
++}
++
++int
++pfctl_show_nat(int dev)
++{
++	struct pfioc_nat pn;
++	struct pfioc_rdr pr;
++	struct pfioc_binat pb;
++	u_int32_t mnr, nr;
++
++	if (ioctl(dev, DIOCGETNATS, &pn)) {
++		warnx("DIOCGETNATS");
++		return (-1);
++	}
++	mnr = pn.nr;
++	for (nr = 0; nr < mnr; ++nr) {
++		pn.nr = nr;
++		if (ioctl(dev, DIOCGETNAT, &pn)) {
++			warnx("DIOCGETNAT");
++			return (-1);
++		}
++		print_nat(&pn.nat);
++	}
++	if (ioctl(dev, DIOCGETRDRS, &pr)) {
++		warnx("DIOCGETRDRS");
++		return (-1);
++	}
++	mnr = pr.nr;
++	for (nr = 0; nr < mnr; ++nr) {
++		pr.nr = nr;
++		if (ioctl(dev, DIOCGETRDR, &pr)) {
++			warnx("DIOCGETRDR");
++			return (-1);
++		}
++		print_rdr(&pr.rdr);
++	}
++	if (ioctl(dev, DIOCGETBINATS, &pb)) {
++		warnx("DIOCGETBINATS");
++		return (-1);
++	}
++	mnr = pb.nr;
++	for (nr = 0; nr < mnr; ++nr) {
++		pb.nr = nr;
++		if (ioctl(dev, DIOCGETBINAT, &pb)) {
++			warnx("DIOCGETBINAT");
++			return (-1);
++		}
++		print_binat(&pb.binat);
++	}
++	return (0);
++}
++
++int
++pfctl_show_states(int dev, u_int8_t proto, int opts)
++{
++	struct pfioc_states ps;
++	struct pf_state *p;
++	char *inbuf = NULL;
++	int i, len = 0;
++
++	for (;;) {
++		ps.ps_len = len;
++		if (len) {
++			ps.ps_buf = inbuf = realloc(inbuf, len);
++			if (inbuf == NULL)
++				err(1, "malloc");
++		}
++		if (ioctl(dev, DIOCGETSTATES, &ps) < 0) {
++			warnx("DIOCGETSTATES");
++			return (-1);
++		}
++		if (ps.ps_len + sizeof(struct pfioc_state) < len)
++			break;
++		if (len == 0 && ps.ps_len == 0)
++			return (0);
++		if (len == 0 && ps.ps_len != 0)
++			len = ps.ps_len;
++		if (ps.ps_len == 0)
++			return (0);	/* no states */
++		len *= 2;
++	}
++	p = ps.ps_states;
++	for (i = 0; i < ps.ps_len; i += sizeof(*p)) {
++		if (!proto || (p->proto == proto))
++			print_state(p, opts);
++		p++;
++	}
++	return (0);
++}
++
++int
++pfctl_show_status(int dev)
++{
++	struct pf_status status;
++
++	if (ioctl(dev, DIOCGETSTATUS, &status)) {
++		warnx("DIOCGETSTATUS");
++		return (-1);
++	}
++	print_status(&status);
++	return (0);
++}
++
++int
++pfctl_show_timeouts(int dev)
++{
++	struct pfioc_tm pt;
++	int i;
++
++	for (i = 0; pf_timeouts[i].name; i++) {
++		pt.timeout = pf_timeouts[i].timeout;
++		if (ioctl(dev, DIOCGETTIMEOUT, &pt))
++			err(1, "DIOCGETTIMEOUT");
++		printf("%-20s %10ds\n", pf_timeouts[i].name, pt.seconds);
++	}
++	return (0);
++
++}
++
++int
++pfctl_show_limits(int dev)
++{
++	struct pfioc_limit pl;
++	int i;
++
++	for (i = 0; pf_limits[i].name; i++) {
++		pl.index = i;
++		if (ioctl(dev, DIOCGETLIMIT, &pl))
++			err(1, "DIOCGETLIMIT");
++		printf("%-10s ", pf_limits[i].name);
++		if (pl.limit == UINT_MAX)
++			printf("unlimited\n");
++		else
++			printf("hard limit %6u\n", pl.limit);
++	}
++	return (0);
++}
++
++/* callbacks for rule/nat/rdr */
++
++int
++pfctl_add_rule(struct pfctl *pf, struct pf_rule *r)
++{
++	if ((loadopt & (PFCTL_FLAG_FILTER | PFCTL_FLAG_ALL)) != 0) {
++		memcpy(&pf->prule->rule, r, sizeof(pf->prule->rule));
++		if ((pf->opts & PF_OPT_NOACTION) == 0) {
++			if (ioctl(pf->dev, DIOCADDRULE, pf->prule))
++				err(1, "DIOCADDRULE");
++		}
++		if (pf->opts & PF_OPT_VERBOSE)
++			print_rule(&pf->prule->rule);
++	}
++	return (0);
++}
++
++int
++pfctl_add_nat(struct pfctl *pf, struct pf_nat *n)
++{
++	if ((loadopt & (PFCTL_FLAG_NAT | PFCTL_FLAG_ALL)) != 0) {
++		memcpy(&pf->pnat->nat, n, sizeof(pf->pnat->nat));
++		if ((pf->opts & PF_OPT_NOACTION) == 0) {
++			if (ioctl(pf->dev, DIOCADDNAT, pf->pnat))
++				err(1, "DIOCADDNAT");
++		}
++		if (pf->opts & PF_OPT_VERBOSE)
++			print_nat(&pf->pnat->nat);
++	}
++	return (0);
++}
++
++int
++pfctl_add_binat(struct pfctl *pf, struct pf_binat *b)
++{
++	if ((loadopt & (PFCTL_FLAG_NAT | PFCTL_FLAG_ALL)) != 0) {
++		memcpy(&pf->pbinat->binat, b, sizeof(pf->pbinat->binat));
++		if ((pf->opts & PF_OPT_NOACTION) == 0) {
++			if (ioctl(pf->dev, DIOCADDBINAT, pf->pbinat))
++				err(1, "DIOCADDBINAT");
++		}
++		if (pf->opts & PF_OPT_VERBOSE)
++			print_binat(&pf->pbinat->binat);
++	}
++	return (0);
++}
++
++int
++pfctl_add_rdr(struct pfctl *pf, struct pf_rdr *r)
++{
++	if ((loadopt & (PFCTL_FLAG_NAT | PFCTL_FLAG_ALL)) != 0) {
++		memcpy(&pf->prdr->rdr, r, sizeof(pf->prdr->rdr));
++		if ((pf->opts & PF_OPT_NOACTION) == 0) {
++			if (ioctl(pf->dev, DIOCADDRDR, pf->prdr))
++				err(1, "DIOCADDRDR");
++		}
++		if (pf->opts & PF_OPT_VERBOSE)
++			print_rdr(&pf->prdr->rdr);
++	}
++	return (0);
++}
++
++int
++pfctl_rules(int dev, char *filename, int opts)
++{
++	FILE *fin;
++	struct pfioc_nat	pn;
++	struct pfioc_binat	pb;
++	struct pfioc_rdr	pr;
++	struct pfioc_rule	pl;
++	struct pfctl		pf;
++
++	if (strcmp(filename, "-") == 0) {
++		fin = stdin;
++		infile = "stdin";
++	} else {
++		fin = fopen(filename, "r");
++		infile = filename;
++	}
++	if (fin == NULL) {
++		warn("%s", filename);
++		return (1);
++	}
++	if ((opts & PF_OPT_NOACTION) == 0) {
++		if ((loadopt & (PFCTL_FLAG_NAT | PFCTL_FLAG_ALL)) != 0) {
++			if (ioctl(dev, DIOCBEGINNATS, &pn.ticket))
++				err(1, "DIOCBEGINNATS");
++			if (ioctl(dev, DIOCBEGINRDRS, &pr.ticket))
++				err(1, "DIOCBEGINRDRS");
++			if (ioctl(dev, DIOCBEGINBINATS, &pb.ticket))
++				err(1, "DIOCBEGINBINATS");
++		}
++		if (((loadopt & (PFCTL_FLAG_FILTER | PFCTL_FLAG_ALL)) != 0) &&
++		    ioctl(dev, DIOCBEGINRULES, &pl.ticket))
++			err(1, "DIOCBEGINRULES");
++	}
++	/* fill in callback data */
++	pf.dev = dev;
++	pf.opts = opts;
++	pf.pnat = &pn;
++	pf.pbinat = &pb;
++	pf.prdr = &pr;
++	pf.prule = &pl;
++	pf.rule_nr = 0;
++	if (parse_rules(fin, &pf) < 0)
++		errx(1, "Syntax error in file: pf rules not loaded");
++	if ((opts & PF_OPT_NOACTION) == 0) {
++		if ((loadopt & (PFCTL_FLAG_NAT | PFCTL_FLAG_ALL)) != 0) {
++			if (ioctl(dev, DIOCCOMMITNATS, &pn.ticket))
++				err(1, "DIOCCOMMITNATS");
++			if (ioctl(dev, DIOCCOMMITRDRS, &pr.ticket))
++				err(1, "DIOCCOMMITRDRS");
++			if (ioctl(dev, DIOCCOMMITBINATS, &pb.ticket))
++				err(1, "DIOCCOMMITBINATS");
++		}
++		if (((loadopt & (PFCTL_FLAG_FILTER | PFCTL_FLAG_ALL)) != 0) &&
++		    ioctl(dev, DIOCCOMMITRULES, &pl.ticket))
++			err(1, "DIOCCOMMITRULES");
++#if 0
++		if ((opts & PF_OPT_QUIET) == 0) {
++			fprintf(stderr, "%u nat entries loaded\n", n);
++			fprintf(stderr, "%u rdr entries loaded\n", r);
++			fprintf(stderr, "%u binat entries loaded\n", b);
++			fprintf(stderr, "%u rules loaded\n", n);
++		}
++#endif
++	}
++	if (fin != stdin)
++		fclose(fin);
++	return (0);
++}
++
++int
++pfctl_set_limit(struct pfctl *pf, const char *opt, unsigned int limit)
++{
++	struct pfioc_limit pl;
++	int i;
++
++	if ((loadopt & (PFCTL_FLAG_OPTION | PFCTL_FLAG_ALL)) != 0) {
++		for (i = 0; pf_limits[i].name; i++) {
++			if (strcasecmp(opt, pf_limits[i].name) == 0) {
++				pl.index = i;
++				pl.limit = limit;
++				if ((pf->opts & PF_OPT_NOACTION) == 0) {
++					if (ioctl(pf->dev, DIOCSETLIMIT, &pl)) {
++						if (errno == EBUSY) {
++							warnx("Current pool "
++							    "size exceeds "
++							    "exceeds requested "
++							    " hard limit");
++							return (1);
++						} else
++							err(1, "DIOCSETLIMIT");
++					}
++				}
++				break;
++			}
++		}
++		if (pf_limits[i].name == NULL) {
++			warnx("Bad pool name.");
++			return (1);
++		}
++	}
++	return (0);
++}
++
++int
++pfctl_set_timeout(struct pfctl *pf, const char *opt, int seconds)
++{
++	struct pfioc_tm pt;
++	int i;
++
++	if ((loadopt & (PFCTL_FLAG_OPTION | PFCTL_FLAG_ALL)) != 0) {
++		for (i = 0; pf_timeouts[i].name; i++) {
++			if (strcasecmp(opt, pf_timeouts[i].name) == 0) {
++				pt.timeout = pf_timeouts[i].timeout;
++				break;
++			}
++		}
++
++		if (pf_timeouts[i].name == NULL) {
++			warnx("Bad timeout name.");
++			return (1);
++		}
++
++		pt.seconds = seconds;
++		if ((pf->opts & PF_OPT_NOACTION) == 0) {
++			if (ioctl(pf->dev, DIOCSETTIMEOUT, &pt))
++				err(1, "DIOCSETTIMEOUT");
++		}
++	}
++	return (0);
++}
++
++int
++pfctl_set_optimization(struct pfctl *pf, const char *opt)
++{
++	const struct pf_hint *hint;
++	int i, r;
++
++	if ((loadopt & (PFCTL_FLAG_OPTION | PFCTL_FLAG_ALL)) != 0) {
++		for (i = 0; pf_hints[i].name; i++)
++			if (strcasecmp(opt, pf_hints[i].name) == 0)
++				break;
++
++		hint = pf_hints[i].hint;
++		if (hint == NULL) {
++			warnx("Bad hint name.");
++			return (1);
++		}
++
++		for (i = 0; hint[i].name; i++)
++			if ((r = pfctl_set_timeout(pf, hint[i].name,
++			    hint[i].timeout)))
++				return (r);
++	}
++	return (0);
++}
++
++int
++pfctl_set_logif(struct pfctl *pf, char *ifname)
++{
++	struct pfioc_if pi;
++
++	if ((loadopt & (PFCTL_FLAG_OPTION | PFCTL_FLAG_ALL)) != 0) {
++		if ((pf->opts & PF_OPT_NOACTION) == 0) {
++			if (!strcmp(ifname, "none"))
++				bzero(pi.ifname, sizeof(pi.ifname));
++			else
++				strncpy(pi.ifname, ifname, sizeof(pi.ifname));
++			if (ioctl(pf->dev, DIOCSETSTATUSIF, &pi))
++				return (1);
++		}
++	}
++	return (0);
++}
++
++int
++pfctl_debug(int dev, u_int32_t level, int opts)
++{
++	if (ioctl(dev, DIOCSETDEBUG, &level))
++		err(1, "DIOCSETDEBUG");
++	if ((opts & PF_OPT_QUIET) == 0) {
++		fprintf(stderr, "debug level set to '");
++		switch (level) {
++		case PF_DEBUG_NONE:
++			fprintf(stderr, "none");
++			break;
++		case PF_DEBUG_URGENT:
++			fprintf(stderr, "urgent");
++			break;
++		case PF_DEBUG_MISC:
++			fprintf(stderr, "misc");
++			break;
++		default:
++			fprintf(stderr, "<invalid>");
++			break;
++		}
++		fprintf(stderr, "'\n");
++	}
++	return (0);
++}
++
++int
++pfctl_clear_rule_counters(int dev, int opts)
++{
++	if (ioctl(dev, DIOCCLRRULECTRS))
++		err(1, "DIOCCLRRULECTRS");
++	if ((opts & PF_OPT_QUIET) == 0)
++		fprintf(stderr, "pf: rule counters cleared\n");
++	return (0);
++}
++
++int
++main(int argc, char *argv[])
++{
++	int error = 0;
++	int dev = -1;
++	int ch;
++	int mode = O_RDONLY;
++
++	if (argc < 2)
++		usage();
++
++	while ((ch = getopt(argc, argv, "deqf:F:hk:nNOrRs:Svx:z")) != -1) {
++		switch (ch) {
++		case 'd':
++			opts |= PF_OPT_DISABLE;
++			mode = O_RDWR;
++			break;
++		case 'e':
++			opts |= PF_OPT_ENABLE;
++			mode = O_RDWR;
++			break;
++		case 'q':
++			opts |= PF_OPT_QUIET;
++			break;
++		case 'F':
++			clearopt = optarg;
++			mode = O_RDWR;
++			break;
++		case 'k':
++			if (state_killers >= 2) {
++				warnx("can only specify -k twice");
++				usage();
++				/* NOTREACHED */
++			}
++			state_kill[state_killers++] = optarg;
++			mode = O_RDWR;
++			break;
++		case 'n':
++			opts |= PF_OPT_NOACTION;
++			break;
++		case 'N':
++			loadopt &= ~PFCTL_FLAG_ALL;
++			loadopt |= PFCTL_FLAG_NAT;
++			break;
++		case 'r':
++			opts |= PF_OPT_USEDNS;
++			break;
++		case 'f':
++			rulesopt = optarg;
++			mode = O_RDWR;
++			break;
++		case 'R':
++			loadopt &= ~PFCTL_FLAG_ALL;
++			loadopt |= PFCTL_FLAG_FILTER;
++			break;
++		case 'O':
++			loadopt &= ~PFCTL_FLAG_ALL;
++			loadopt |= PFCTL_FLAG_OPTION;
++			break;
++		case 's':
++			showopt = optarg;
++			break;
++		case 'v':
++			opts |= PF_OPT_VERBOSE;
++			break;
++		case 'x':
++			debugopt = optarg;
++			mode = O_RDWR;
++			break;
++		case 'z':
++			opts |= PF_OPT_CLRRULECTRS;
++			mode = O_RDWR;
++			break;
++		case 'h':
++			/* FALLTHROUGH */
++		default:
++			usage();
++			/* NOTREACHED */
++		}
++	}
++
++	if (argc != optind) {
++		warnx("unknown command line argument: %s ...", argv[optind]);
++		usage();
++		/* NOTREACHED */
++	}
++
++	if (opts & PF_OPT_NOACTION)
++		mode = O_RDONLY;
++	if ((opts & PF_OPT_NOACTION) == 0) {
++		dev = open("/dev/pf", mode);
++		if (dev == -1)
++			err(1, "open(\"/dev/pf\")");
++	} else {
++		/* turn off options */
++		opts &= ~ (PF_OPT_DISABLE | PF_OPT_ENABLE);
++		clearopt = showopt = debugopt = NULL;
++	}
++
++	if (opts & PF_OPT_DISABLE)
++		if (pfctl_disable(dev, opts))
++			error = 1;
++
++	if (clearopt != NULL) {
++		switch (*clearopt) {
++		case 'r':
++			pfctl_clear_rules(dev, opts);
++			break;
++		case 'n':
++			pfctl_clear_nat(dev, opts);
++			break;
++		case 's':
++			pfctl_clear_states(dev, opts);
++			break;
++		case 'i':
++			pfctl_clear_stats(dev, opts);
++			break;
++		case 'a':
++			pfctl_clear_rules(dev, opts);
++			pfctl_clear_nat(dev, opts);
++			pfctl_clear_states(dev, opts);
++			pfctl_clear_stats(dev, opts);
++			break;
++		default:
++			warnx("Unknown flush modifier '%s'", clearopt);
++			error = 1;
++		}
++	}
++	if (state_killers)
++		pfctl_kill_states(dev, opts);
++
++	if (rulesopt != NULL)
++		if (pfctl_rules(dev, rulesopt, opts))
++			error = 1;
++
++	if (showopt != NULL) {
++		switch (*showopt) {
++		case 'r':
++			pfctl_show_rules(dev, opts, 0);
++			break;
++		case 'l':
++			pfctl_show_rules(dev, opts, 1);
++			break;
++		case 'n':
++			pfctl_show_nat(dev);
++			break;
++		case 's':
++			pfctl_show_states(dev, 0, opts);
++			break;
++		case 'i':
++			pfctl_show_status(dev);
++			break;
++		case 't':
++			pfctl_show_timeouts(dev);
++			break;
++		case 'm':
++			pfctl_show_limits(dev);
++			break;
++		case 'a':
++			pfctl_show_rules(dev, opts, 0);
++			pfctl_show_nat(dev);
++			pfctl_show_states(dev, 0, opts);
++			pfctl_show_status(dev);
++			pfctl_show_rules(dev, opts, 1);
++			pfctl_show_timeouts(dev);
++			pfctl_show_limits(dev);
++			break;
++		default:
++			warnx("Unknown show modifier '%s'", showopt);
++			error = 1;
++		}
++	}
++
++	if (opts & PF_OPT_ENABLE)
++		if (pfctl_enable(dev, opts))
++			error = 1;
++
++	if (debugopt != NULL) {
++		switch (*debugopt) {
++		case 'n':
++			pfctl_debug(dev, PF_DEBUG_NONE, opts);
++			break;
++		case 'u':
++			pfctl_debug(dev, PF_DEBUG_URGENT, opts);
++			break;
++		case 'm':
++			pfctl_debug(dev, PF_DEBUG_MISC, opts);
++			break;
++		default:
++			warnx("Unknown debug level '%s'", debugopt);
++			error = 1;
++		}
++	}
++
++	if (opts & PF_OPT_CLRRULECTRS) {
++		if (pfctl_clear_rule_counters(dev, opts))
++			error = 1;
++	}
++	close(dev);
++	exit(error);
++}
+diff -Nur /usr/src/sbin.orig/pfctl/pfctl_parser.c /usr/src/sbin/pfctl/pfctl_parser.c
+--- /usr/src/sbin.orig/pfctl/pfctl_parser.c	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pfctl/pfctl_parser.c	Fri Jul 11 07:51:42 2025
+@@ -0,0 +1,827 @@
++/*
++ * Copyright (c) 2001 Daniel Hartmeier
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *    - Redistributions of source code must retain the above copyright
++ *      notice, this list of conditions and the following disclaimer.
++ *    - Redistributions in binary form must reproduce the above
++ *      copyright notice, this list of conditions and the following
++ *      disclaimer in the documentation and/or other materials provided
++ *      with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ *	$OpenBSD: pfctl_parser.c,v 1.94 2002/07/20 18:58:44 deraadt Exp $
++ */
++
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <net/if.h>
++#include <netinet/in.h>
++#include <netinet/in_systm.h>
++#include <netinet/ip.h>
++#include <netinet/ip_icmp.h>
++#include <netinet/icmp6.h>
++#include <net/pfvar.h>
++#include <arpa/inet.h>
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <ctype.h>
++#include <netdb.h>
++#include <stdarg.h>
++#include <errno.h>
++#include <err.h>
++
++#include "pfctl_parser.h"
++#include "pf_print_state.h"
++
++#define UID_MAX -1
++#define GID_MAX -1
++
++void		 print_op (u_int8_t, const char *, const char *);
++void		 print_port (u_int8_t, u_int16_t, u_int16_t, char *);
++void		 print_uid (u_int8_t, uid_t, uid_t, const char *);
++void		 print_gid (u_int8_t, gid_t, gid_t, const char *);
++void		 print_flags (u_int8_t);
++void		 print_fromto(struct pf_rule_addr *, struct pf_rule_addr *,
++		    u_int8_t, u_int8_t);
++
++char *tcpflags = "FSRPAUEW";
++
++static const struct icmptypeent icmp_type[] = {
++	{ "echoreq",	ICMP_ECHO },
++	{ "echorep",	ICMP_ECHOREPLY },
++	{ "unreach",	ICMP_UNREACH },
++	{ "squench",	ICMP_SOURCEQUENCH },
++	{ "redir",	ICMP_REDIRECT },
++#ifdef ICMP_ALTHOSTADDR
++	{ "althost",    ICMP_ALTHOSTADDR },
++#endif
++	{ "routeradv",	ICMP_ROUTERADVERT },
++	{ "routersol",	ICMP_ROUTERSOLICIT },
++	{ "timex",	ICMP_TIMXCEED },
++	{ "paramprob",	ICMP_PARAMPROB },
++	{ "timereq",	ICMP_TSTAMP },
++	{ "timerep",	ICMP_TSTAMPREPLY },
++	{ "inforeq",	ICMP_IREQ },
++	{ "inforep",	ICMP_IREQREPLY },
++	{ "maskreq",	ICMP_MASKREQ },
++	{ "maskrep",	ICMP_MASKREPLY },
++#ifdef ICMP_TRACEROUTE
++	{ "trace",      ICMP_TRACEROUTE },
++#endif
++#ifdef ICMP_DATACONVERR
++	{ "dataconv",	ICMP_DATACONVERR },
++	{ "mobredir",	ICMP_MOBILE_REDIRECT },
++	{ "ipv6-where",	ICMP_IPV6_WHEREAREYOU },
++	{ "ipv6-here",	ICMP_IPV6_IAMHERE },
++	{ "mobregreq",	ICMP_MOBILE_REGREQUEST },
++	{ "mobregrep",	ICMP_MOBILE_REGREPLY },
++	{ "skip",	ICMP_SKIP },
++#endif
++#ifdef ICMP_PHOTURIS
++	{ "photuris",	ICMP_PHOTURIS }
++#endif
++};
++
++static const struct icmptypeent icmp6_type[] = {
++	{ "unreach",	ICMP6_DST_UNREACH },
++	{ "toobig",	ICMP6_PACKET_TOO_BIG },
++	{ "timex",	ICMP6_TIME_EXCEEDED },
++	{ "paramprob",	ICMP6_PARAM_PROB },
++	{ "echoreq",	ICMP6_ECHO_REQUEST },
++	{ "echorep",	ICMP6_ECHO_REPLY },
++	{ "groupqry",	ICMP6_MEMBERSHIP_QUERY },
++	{ "listqry",	MLD6_LISTENER_QUERY },
++	{ "grouprep",	ICMP6_MEMBERSHIP_REPORT },
++	{ "listenrep",	MLD6_LISTENER_REPORT },
++	{ "groupterm",	ICMP6_MEMBERSHIP_REDUCTION },
++	{ "listendone", MLD6_LISTENER_DONE },
++	{ "routersol",	ND_ROUTER_SOLICIT },
++	{ "routeradv",	ND_ROUTER_ADVERT },
++	{ "neighbrsol", ND_NEIGHBOR_SOLICIT },
++	{ "neighbradv", ND_NEIGHBOR_ADVERT },
++	{ "redir",	ND_REDIRECT },
++	{ "routrrenum", ICMP6_ROUTER_RENUMBERING },
++	{ "wrureq",	ICMP6_WRUREQUEST },
++	{ "wrurep",	ICMP6_WRUREPLY },
++	{ "fqdnreq",	ICMP6_FQDN_QUERY },
++	{ "fqdnrep",	ICMP6_FQDN_REPLY },
++	{ "niqry",	ICMP6_NI_QUERY },
++	{ "nirep",	ICMP6_NI_REPLY },
++	{ "mtraceresp",	MLD6_MTRACE_RESP },
++	{ "mtrace",	MLD6_MTRACE }
++};
++
++static const struct icmpcodeent icmp_code[] = {
++	{ "net-unr",		ICMP_UNREACH,	ICMP_UNREACH_NET },
++	{ "host-unr",		ICMP_UNREACH,	ICMP_UNREACH_HOST },
++	{ "proto-unr",		ICMP_UNREACH,	ICMP_UNREACH_PROTOCOL },
++	{ "port-unr",		ICMP_UNREACH,	ICMP_UNREACH_PORT },
++	{ "needfrag",		ICMP_UNREACH,	ICMP_UNREACH_NEEDFRAG },
++	{ "srcfail",		ICMP_UNREACH,	ICMP_UNREACH_SRCFAIL },
++	{ "net-unk",		ICMP_UNREACH,	ICMP_UNREACH_NET_UNKNOWN },
++	{ "host-unk",		ICMP_UNREACH,	ICMP_UNREACH_HOST_UNKNOWN },
++	{ "isolate",		ICMP_UNREACH,	ICMP_UNREACH_ISOLATED },
++	{ "net-prohib",		ICMP_UNREACH,	ICMP_UNREACH_NET_PROHIB },
++	{ "host-prohib",	ICMP_UNREACH,	ICMP_UNREACH_HOST_PROHIB },
++	{ "net-tos",		ICMP_UNREACH,	ICMP_UNREACH_TOSNET },
++	{ "host-tos",		ICMP_UNREACH,	ICMP_UNREACH_TOSHOST },
++#ifdef ICMP_UNREACH_FILTER_PROHIB
++	{ "filter-prohib",	ICMP_UNREACH,	ICMP_UNREACH_FILTER_PROHIB },
++	{ "host-preced",	ICMP_UNREACH,	ICMP_UNREACH_HOST_PRECEDENCE },
++	{ "cutoff-preced",	ICMP_UNREACH,	ICMP_UNREACH_PRECEDENCE_CUTOFF },
++#endif
++	{ "redir-net",		ICMP_REDIRECT,	ICMP_REDIRECT_NET },
++	{ "redir-host",		ICMP_REDIRECT,	ICMP_REDIRECT_HOST },
++	{ "redir-tos-net",	ICMP_REDIRECT,	ICMP_REDIRECT_TOSNET },
++	{ "redir-tos-host",	ICMP_REDIRECT,	ICMP_REDIRECT_TOSHOST },
++#ifdef ICMP_ROUTERADVERT_NORMAL
++	{ "normal-adv",		ICMP_ROUTERADVERT, ICMP_ROUTERADVERT_NORMAL },
++	{ "common-adv",		ICMP_ROUTERADVERT, ICMP_ROUTERADVERT_NOROUTE_COMMON },
++#endif
++	{ "transit",		ICMP_TIMXCEED,	ICMP_TIMXCEED_INTRANS },
++	{ "reassemb",		ICMP_TIMXCEED,	ICMP_TIMXCEED_REASS },
++#ifdef ICMP_PARAMPROB_ERRATPTR
++	{ "badhead",		ICMP_PARAMPROB,	ICMP_PARAMPROB_ERRATPTR },
++	{ "optmiss",		ICMP_PARAMPROB,	ICMP_PARAMPROB_OPTABSENT },
++	{ "badlen",		ICMP_PARAMPROB,	ICMP_PARAMPROB_LENGTH },
++#endif
++#ifdef ICMP_PHOTURIS
++	{ "unknown-ind",	ICMP_PHOTURIS,	ICMP_PHOTURIS_UNKNOWN_INDEX },
++	{ "auth-fail",		ICMP_PHOTURIS,	ICMP_PHOTURIS_AUTH_FAILED },
++	{ "decrypt-fail",	ICMP_PHOTURIS,	ICMP_PHOTURIS_DECRYPT_FAILED }
++#endif
++};
++
++static const struct icmpcodeent icmp6_code[] = {
++	{ "admin-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_ADMIN },
++	{ "noroute-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_NOROUTE },
++	{ "notnbr-unr",	ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_NOTNEIGHBOR },
++	{ "beyond-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_BEYONDSCOPE },
++	{ "addr-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_ADDR },
++	{ "port-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_NOPORT },
++	{ "transit", ICMP6_TIME_EXCEEDED, ICMP6_TIME_EXCEED_TRANSIT },
++	{ "reassemb", ICMP6_TIME_EXCEEDED, ICMP6_TIME_EXCEED_REASSEMBLY },
++	{ "badhead", ICMP6_PARAM_PROB, ICMP6_PARAMPROB_HEADER },
++	{ "nxthdr", ICMP6_PARAM_PROB, ICMP6_PARAMPROB_NEXTHEADER },
++	{ "redironlink", ND_REDIRECT, ND_REDIRECT_ONLINK },
++	{ "redirrouter", ND_REDIRECT, ND_REDIRECT_ROUTER }
++};
++
++const struct pf_timeout pf_timeouts[] = {
++	{ "tcp.first",		PFTM_TCP_FIRST_PACKET },
++	{ "tcp.opening",	PFTM_TCP_OPENING },
++	{ "tcp.established",	PFTM_TCP_ESTABLISHED },
++	{ "tcp.closing",	PFTM_TCP_CLOSING },
++	{ "tcp.finwait",	PFTM_TCP_FIN_WAIT },
++	{ "tcp.closed",		PFTM_TCP_CLOSED },
++	{ "udp.first",		PFTM_UDP_FIRST_PACKET },
++	{ "udp.single",		PFTM_UDP_SINGLE },
++	{ "udp.multiple",	PFTM_UDP_MULTIPLE },
++	{ "icmp.first",		PFTM_ICMP_FIRST_PACKET },
++	{ "icmp.error",		PFTM_ICMP_ERROR_REPLY },
++	{ "other.first",	PFTM_OTHER_FIRST_PACKET },
++	{ "other.single",	PFTM_OTHER_SINGLE },
++	{ "other.multiple",	PFTM_OTHER_MULTIPLE },
++	{ "frag",		PFTM_FRAG },
++	{ "interval",		PFTM_INTERVAL },
++	{ NULL,			0 }
++};
++
++const struct icmptypeent *
++geticmptypebynumber(u_int8_t type, u_int8_t af)
++{
++	unsigned int i;
++
++	if (af != AF_INET6) {
++		for (i=0; i < (sizeof (icmp_type) / sizeof(icmp_type[0])); i++) {
++			if (type == icmp_type[i].type)
++				return (&icmp_type[i]);
++		}
++	} else {
++		for (i=0; i < (sizeof (icmp6_type) /
++		    sizeof(icmp6_type[0])); i++) {
++			if (type == icmp6_type[i].type)
++				 return (&icmp6_type[i]);
++		}
++	}
++	return (NULL);
++}
++
++const struct icmptypeent *
++geticmptypebyname(char *w, u_int8_t af)
++{
++	unsigned int i;
++
++	if (af != AF_INET6) {
++		for (i=0; i < (sizeof (icmp_type) / sizeof(icmp_type[0])); i++) {
++			if (!strcmp(w, icmp_type[i].name))
++				return (&icmp_type[i]);
++		}
++	} else {
++		for (i=0; i < (sizeof (icmp6_type) /
++		    sizeof(icmp6_type[0])); i++) {
++			if (!strcmp(w, icmp6_type[i].name))
++				return (&icmp6_type[i]);
++		}
++	}
++	return (NULL);
++}
++
++const struct icmpcodeent *
++geticmpcodebynumber(u_int8_t type, u_int8_t code, u_int8_t af)
++{
++	unsigned int i;
++
++	if (af != AF_INET6) {
++		for (i=0; i < (sizeof (icmp_code) / sizeof(icmp_code[0])); i++) {
++			if (type == icmp_code[i].type &&
++			    code == icmp_code[i].code)
++				return (&icmp_code[i]);
++		}
++	} else {
++		for (i=0; i < (sizeof (icmp6_code) /
++		   sizeof(icmp6_code[0])); i++) {
++			if (type == icmp6_code[i].type &&
++			    code == icmp6_code[i].code)
++				return (&icmp6_code[i]);
++		}
++	}
++	return (NULL);
++}
++
++const struct icmpcodeent *
++geticmpcodebyname(u_long type, char *w, u_int8_t af)
++{
++	unsigned int i;
++
++	if (af != AF_INET6) {
++		for (i=0; i < (sizeof (icmp_code) / sizeof(icmp_code[0])); i++) {
++			if (type == icmp_code[i].type &&
++			    !strcmp(w, icmp_code[i].name))
++				return (&icmp_code[i]);
++		}
++	} else {
++		for (i=0; i < (sizeof (icmp6_code) /
++		    sizeof(icmp6_code[0])); i++) {
++			if (type == icmp6_code[i].type &&
++			    !strcmp(w, icmp6_code[i].name))
++				return (&icmp6_code[i]);
++		}
++	}
++	return (NULL);
++}
++
++void
++print_op(u_int8_t op, const char *a1, const char *a2)
++{
++	if (op == PF_OP_IRG)
++		printf("%s >< %s ", a1, a2);
++	else if (op == PF_OP_XRG)
++		printf("%s <> %s ", a1, a2);
++	else if (op == PF_OP_EQ)
++		printf("= %s ", a1);
++	else if (op == PF_OP_NE)
++		printf("!= %s ", a1);
++	else if (op == PF_OP_LT)
++		printf("< %s ", a1);
++	else if (op == PF_OP_LE)
++		printf("<= %s ", a1);
++	else if (op == PF_OP_GT)
++		printf("> %s ", a1);
++	else if (op == PF_OP_GE)
++		printf(">= %s ", a1);
++}
++
++void
++print_port(u_int8_t op, u_int16_t p1, u_int16_t p2, char *proto)
++{
++	char a1[6], a2[6];
++	struct servent *s = getservbyport(p1, proto);
++
++	p1 = ntohs(p1);
++	p2 = ntohs(p2);
++	snprintf(a1, sizeof(a1), "%u", p1);
++	snprintf(a2, sizeof(a2), "%u", p2);
++	printf("port ");
++	if (s != NULL && (op == PF_OP_EQ || op == PF_OP_NE))
++		print_op(op, s->s_name, a2);
++	else
++		print_op(op, a1, a2);
++}
++
++void
++print_uid(u_int8_t op, uid_t u1, uid_t u2, const char *t)
++{
++	char a1[11], a2[11];
++
++	snprintf(a1, sizeof(a1), "%u", u1);
++	snprintf(a2, sizeof(a2), "%u", u2);
++	printf("%s ", t);
++	if (u1 == UID_MAX && (op == PF_OP_EQ || op == PF_OP_NE))
++		print_op(op, "unknown", a2);
++	else
++		print_op(op, a1, a2);
++}
++
++void
++print_gid(u_int8_t op, gid_t g1, gid_t g2, const char *t)
++{
++	char a1[11], a2[11];
++
++	snprintf(a1, sizeof(a1), "%u", g1);
++	snprintf(a2, sizeof(a2), "%u", g2);
++	printf("%s ", t);
++	if (g1 == GID_MAX && (op == PF_OP_EQ || op == PF_OP_NE))
++		print_op(op, "unknown", a2);
++	else
++		print_op(op, a1, a2);
++}
++
++void
++print_flags(u_int8_t f)
++{
++	int i;
++
++	for (i = 0; tcpflags[i]; ++i)
++		if (f & (1 << i))
++			printf("%c", tcpflags[i]);
++}
++
++void
++print_fromto(struct pf_rule_addr *src, struct pf_rule_addr *dst,
++    u_int8_t af, u_int8_t proto)
++{
++	if (PF_AZERO(&src->addr.addr, AF_INET6) &&
++	    PF_AZERO(&src->mask, AF_INET6) &&
++	    !src->noroute && !dst->noroute &&
++	    !src->port_op && PF_AZERO(&dst->addr.addr, AF_INET6) &&
++	    PF_AZERO(&dst->mask, AF_INET6) && !dst->port_op)
++		printf("all ");
++	else {
++		printf("from ");
++		if (src->noroute)
++			printf("no-route ");
++		else if (PF_AZERO(&src->addr.addr, AF_INET6) &&
++		    PF_AZERO(&src->mask, AF_INET6))
++			printf("any ");
++		else {
++			if (src->not)
++				printf("! ");
++			print_addr(&src->addr, &src->mask, af);
++			printf(" ");
++		}
++		if (src->port_op)
++			print_port(src->port_op, src->port[0],
++			    src->port[1],
++			    proto == IPPROTO_TCP ? "tcp" : "udp");
++
++		printf("to ");
++		if (dst->noroute)
++			printf("no-route ");
++		else if (PF_AZERO(&dst->addr.addr, AF_INET6) &&
++		    PF_AZERO(&dst->mask, AF_INET6))
++			printf("any ");
++		else {
++			if (dst->not)
++				printf("! ");
++			print_addr(&dst->addr, &dst->mask, af);
++			printf(" ");
++		}
++		if (dst->port_op)
++			print_port(dst->port_op, dst->port[0],
++			    dst->port[1],
++			    proto == IPPROTO_TCP ? "tcp" : "udp");
++	}
++}
++
++void
++print_nat(struct pf_nat *n)
++{
++	if (n->no)
++		printf("no ");
++	printf("nat ");
++	if (n->ifname[0]) {
++		printf("on ");
++		if (n->ifnot)
++			printf("! ");
++		printf("%s ", n->ifname);
++	}
++	if (n->af) {
++		if (n->af == AF_INET)
++			printf("inet ");
++		else
++			printf("inet6 ");
++	}
++	if (n->proto) {
++		struct protoent *p = getprotobynumber(n->proto);
++
++		if (p != NULL)
++			printf("proto %s ", p->p_name);
++		else
++			printf("proto %u ", n->proto);
++	}
++	print_fromto(&n->src, &n->dst, n->af, n->proto);
++	if (!n->no) {
++		printf("-> ");
++		print_addr(&n->raddr, NULL, n->af);
++		if (n->proxy_port[0] != PF_NAT_PROXY_PORT_LOW ||
++		    n->proxy_port[1] != PF_NAT_PROXY_PORT_HIGH) {
++			if (n->proxy_port[0] == n->proxy_port[1])
++				printf(" port %u", n->proxy_port[0]);
++			else
++				printf(" port %u:%u", n->proxy_port[0],
++				    n->proxy_port[1]);
++		}
++	}
++	printf("\n");
++}
++
++void
++print_binat(struct pf_binat *b)
++{
++	if (b->no)
++		printf("no ");
++	printf("binat ");
++	if (b->ifname[0]) {
++		printf("on ");
++		printf("%s ", b->ifname);
++	}
++	if (b->af) {
++		if (b->af == AF_INET)
++			printf("inet ");
++		else
++			printf("inet6 ");
++	}
++	if (b->proto) {
++		struct protoent *p = getprotobynumber(b->proto);
++
++		if (p != NULL)
++			printf("proto %s ", p->p_name);
++		else
++			printf("proto %u ", b->proto);
++	}
++	printf("from ");
++	print_addr(&b->saddr, NULL, b->af);
++	printf(" ");
++	printf("to ");
++	if (!PF_AZERO(&b->daddr.addr, b->af) || !PF_AZERO(&b->dmask, b->af)) {
++		if (b->dnot)
++			printf("! ");
++		print_addr(&b->daddr, &b->dmask, b->af);
++		printf(" ");
++	} else
++		printf("any ");
++	if (!b->no) {
++		printf("-> ");
++		print_addr(&b->raddr, NULL, b->af);
++	}
++	printf("\n");
++}
++
++void
++print_rdr(struct pf_rdr *r)
++{
++	if (r->no)
++		printf("no ");
++	printf("rdr ");
++	if (r->ifname[0]) {
++		printf("on ");
++		if (r->ifnot)
++			printf("! ");
++		printf("%s ", r->ifname);
++	}
++	if (r->af) {
++		if (r->af == AF_INET)
++			printf("inet ");
++		else
++			printf("inet6 ");
++	}
++	if (r->proto) {
++		struct protoent *p = getprotobynumber(r->proto);
++
++		if (p != NULL)
++			printf("proto %s ", p->p_name);
++		else
++			printf("proto %u ", r->proto);
++	}
++	printf("from ");
++	if (!PF_AZERO(&r->saddr.addr, r->af) || !PF_AZERO(&r->smask, r->af)) {
++		if (r->snot)
++			printf("! ");
++		print_addr(&r->saddr, &r->smask, r->af);
++		printf(" ");
++	} else
++		printf("any ");
++	printf("to ");
++	if (!PF_AZERO(&r->daddr.addr, r->af) || !PF_AZERO(&r->dmask, r->af)) {
++		if (r->dnot)
++			printf("! ");
++		print_addr(&r->daddr, &r->dmask, r->af);
++		printf(" ");
++	} else
++		printf("any ");
++	if (r->dport) {
++		printf("port %u", ntohs(r->dport));
++		if (r->opts & PF_DPORT_RANGE)
++			printf(":%u", ntohs(r->dport2));
++	}
++	if (!r->no) {
++		printf(" -> ");
++		print_addr(&r->raddr, NULL, r->af);
++		printf(" ");
++		if (r->rport) {
++			printf("port %u", ntohs(r->rport));
++			if (r->opts & PF_RPORT_RANGE)
++				printf(":*");
++		}
++	}
++	printf("\n");
++}
++
++const char *pf_reasons[PFRES_MAX+1] = PFRES_NAMES;
++const char *pf_fcounters[FCNT_MAX+1] = FCNT_NAMES;
++
++void
++print_status(struct pf_status *s)
++{
++	char statline[80];
++	time_t runtime;
++	int i;
++
++	runtime = time(NULL) - s->since;
++
++	if (s->running) {
++		unsigned sec, min, hrs, day = runtime;
++
++		sec = day % 60;
++		day /= 60;
++		min = day % 60;
++		day /= 60;
++		hrs = day % 24;
++		day /= 24;
++		snprintf(statline, sizeof(statline),
++		    "Status: Enabled for %u days %.2u:%.2u:%.2u",
++		    day, hrs, min, sec);
++	} else
++		snprintf(statline, sizeof(statline), "Status: Disabled");
++	printf("%-44s", statline);
++	switch (s->debug) {
++	case 0:
++		printf("%15s\n\n", "Debug: None");
++		break;
++	case 1:
++		printf("%15s\n\n", "Debug: Urgent");
++		break;
++	case 2:
++		printf("%15s\n\n", "Debug: Misc");
++		break;
++	}
++	if (s->ifname[0] != 0) {
++		printf("Interface Stats for %-16s %5s %16s\n",
++		    s->ifname, "IPv4", "IPv6");
++		printf("  %-25s %14llu %16llu\n", "Bytes In",
++		    s->bcounters[0][PF_IN], s->bcounters[1][PF_IN]);
++		printf("  %-25s %14llu %16llu\n", "Bytes Out",
++		    s->bcounters[0][PF_OUT], s->bcounters[1][PF_OUT]);
++		printf("  Packets In\n");
++		printf("    %-23s %14llu %16llu\n", "Passed",
++		    s->pcounters[0][PF_IN][PF_PASS],
++		    s->pcounters[1][PF_IN][PF_PASS]);
++		printf("    %-23s %14llu %16llu\n", "Blocked",
++		    s->pcounters[0][PF_IN][PF_DROP],
++		    s->pcounters[1][PF_IN][PF_DROP]);
++		printf("  Packets Out\n");
++		printf("    %-23s %14llu %16llu\n", "Passed",
++		    s->pcounters[0][PF_OUT][PF_PASS],
++		    s->pcounters[1][PF_OUT][PF_PASS]);
++		printf("    %-23s %14llu %16llu\n\n", "Blocked",
++		    s->pcounters[0][PF_OUT][PF_DROP],
++		    s->pcounters[1][PF_OUT][PF_DROP]);
++	}
++	printf("%-27s %14s %16s\n", "State Table", "Total", "Rate");
++	printf("  %-25s %14u %14s\n", "current entries", s->states, "");
++	for (i = 0; i < FCNT_MAX; i++) {
++		printf("  %-25s %14lld ", pf_fcounters[i],
++			    s->fcounters[i]);
++		if (runtime > 0)
++			printf("%14.1f/s\n",
++			    (double)s->fcounters[i] / (double)runtime);
++		else
++			printf("%14s\n", "");
++	}
++	printf("Counters\n");
++	for (i = 0; i < PFRES_MAX; i++) {
++		printf("  %-25s %14lld ", pf_reasons[i],
++		    s->counters[i]);
++		if (runtime > 0)
++			printf("%14.1f/s\n",
++			    (double)s->counters[i] / (double)runtime);
++		else
++			printf("%14s\n", "");
++	}
++}
++
++void
++print_rule(struct pf_rule *r)
++{
++	int i, opts;
++
++	printf("@%d ", r->nr);
++	if (r->action == PF_PASS)
++		printf("pass ");
++	else if (r->action == PF_DROP) {
++		printf("block ");
++		if (r->rule_flag & PFRULE_RETURNRST) {
++			if (!r->return_ttl)
++				printf("return-rst ");
++			else
++				printf("return-rst(ttl %d) ", r->return_ttl);
++		} else if (r->return_icmp) {
++			const struct icmpcodeent *ic;
++
++			if (r->af != AF_INET6)
++				printf("return-icmp");
++			else
++				printf("return-icmp6");
++			ic = geticmpcodebynumber(r->return_icmp >> 8,
++			    r->return_icmp & 255, r->af);
++
++			if (ic == NULL)
++				printf("(%u) ", r->return_icmp & 255);
++			else if ((r->af != AF_INET6 && ic->code !=
++			    ICMP_UNREACH_PORT) ||
++			    (r->af == AF_INET6 && ic->code !=
++			    ICMP6_DST_UNREACH_NOPORT))
++				printf("(%s) ", ic->name);
++			else
++				printf(" ");
++		}
++	} else {
++		printf("scrub ");
++	}
++	if (r->direction == 0)
++		printf("in ");
++	else
++		printf("out ");
++	if (r->log == 1)
++		printf("log ");
++	else if (r->log == 2)
++		printf("log-all ");
++	if (r->quick)
++		printf("quick ");
++	if (r->ifname[0]) {
++		if (r->ifnot)
++			printf("on ! %s ", r->ifname);
++		else
++			printf("on %s ", r->ifname);
++	}
++	if (r->rt) {
++		if (r->rt == PF_ROUTETO)
++			printf("route-to ");
++		else if (r->rt == PF_DUPTO)
++			printf("dup-to ");
++		else if (r->rt == PF_FASTROUTE)
++			printf("fastroute");
++		if (r->af && !PF_AZERO(&r->rt_addr, r->af)) {
++			struct pf_addr_wrap aw;
++
++			printf("(%s ", r->rt_ifname);
++			aw.addr = r->rt_addr;
++			aw.addr_dyn = NULL;
++			print_addr(&aw, NULL, r->af);
++			printf(")");
++		} else if (r->rt_ifname[0])
++			printf("%s", r->rt_ifname);
++		printf(" ");
++	}
++	if (r->af) {
++		if (r->af == AF_INET)
++			printf("inet ");
++		else
++			printf("inet6 ");
++	}
++	if (r->proto) {
++		struct protoent *p = getprotobynumber(r->proto);
++
++		if (p != NULL)
++			printf("proto %s ", p->p_name);
++		else
++			printf("proto %u ", r->proto);
++	}
++	print_fromto(&r->src, &r->dst, r->af, r->proto);
++	if (r->uid.op)
++		print_uid(r->uid.op, r->uid.uid[0], r->uid.uid[1], "user");
++	if (r->gid.op)
++		print_gid(r->gid.op, r->gid.gid[0], r->gid.gid[1], "group");
++	if (r->flags || r->flagset) {
++		printf("flags ");
++		print_flags(r->flags);
++		printf("/");
++		print_flags(r->flagset);
++		printf(" ");
++	}
++	if (r->type) {
++		const struct icmptypeent *p;
++
++		p = geticmptypebynumber(r->type-1, r->af);
++		if (r->af != AF_INET6)
++			printf("icmp-type");
++		else
++			printf("ipv6-icmp-type");
++		if (p != NULL)
++			printf(" %s ", p->name);
++		else
++			printf(" %u ", r->type-1);
++		if (r->code) {
++			const struct icmpcodeent *p;
++
++			p = geticmpcodebynumber(r->type-1, r->code-1, r->af);
++			if (p != NULL)
++				printf("code %s ", p->name);
++			else
++				printf("code %u ", r->code-1);
++		}
++	}
++	if (r->keep_state == PF_STATE_NORMAL)
++		printf("keep state ");
++	else if (r->keep_state == PF_STATE_MODULATE)
++		printf("modulate state ");
++	opts = 0;
++	if (r->max_states)
++		opts = 1;
++	for (i = 0; !opts && i < PFTM_MAX; ++i)
++		if (r->timeout[i])
++			opts = 1;
++	if (opts) {
++		printf("(");
++		if (r->max_states) {
++			printf("max %u", r->max_states);
++			opts = 0;
++		}
++		for (i = 0; i < PFTM_MAX; ++i)
++			if (r->timeout[i]) {
++				if (!opts)
++					printf(", ");
++				opts = 0;
++				printf("%s %u", pf_timeouts[i].name,
++				    r->timeout[i]);
++			}
++		printf(") ");
++	}
++	if (r->rule_flag & PFRULE_FRAGMENT)
++		printf("fragment ");
++	if (r->rule_flag & PFRULE_NODF)
++		printf("no-df ");
++	if (r->min_ttl)
++		printf("min-ttl %d ", r->min_ttl);
++	if (r->max_mss)
++		printf("max-mss %d ", r->max_mss);
++	if (r->allow_opts)
++		printf("allow-opts ");
++	if (r->action == PF_SCRUB) {
++		if (r->rule_flag & PFRULE_FRAGDROP)
++			printf("fragment drop-ovl ");
++		else if (r->rule_flag & PFRULE_FRAGCROP)
++			printf("fragment crop ");
++		else
++			printf("fragment reassemble ");
++	}
++	if (r->label[0])
++		printf("label %s", r->label);
++
++	printf("\n");
++}
++
++int
++parse_flags(char *s)
++{
++	char *p, *q;
++	u_int8_t f = 0;
++
++	for (p = s; *p; p++) {
++		if ((q = strchr(tcpflags, *p)) == NULL)
++			return -1;
++		else
++			f |= 1 << (q - tcpflags);
++	}
++	return (f ? f : PF_TH_ALL);
++}
+diff -Nur /usr/src/sbin.orig/pfctl/pfctl_parser.h /usr/src/sbin/pfctl/pfctl_parser.h
+--- /usr/src/sbin.orig/pfctl/pfctl_parser.h	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pfctl/pfctl_parser.h	Fri Jul 11 07:51:42 2025
+@@ -0,0 +1,115 @@
++/*	$OpenBSD: pfctl_parser.h,v 1.25 2002/06/25 08:13:26 henning Exp $ */
++
++/*
++ * Copyright (c) 2001 Daniel Hartmeier
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *    - Redistributions of source code must retain the above copyright
++ *      notice, this list of conditions and the following disclaimer.
++ *    - Redistributions in binary form must reproduce the above
++ *      copyright notice, this list of conditions and the following
++ *      disclaimer in the documentation and/or other materials provided
++ *      with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
++#ifndef _PFCTL_PARSER_H_
++#define _PFCTL_PARSER_H_
++
++#define PF_OPT_DISABLE		0x0001
++#define PF_OPT_ENABLE		0x0002
++#define PF_OPT_VERBOSE		0x0004
++#define PF_OPT_NOACTION		0x0008
++#define PF_OPT_QUIET		0x0010
++#define PF_OPT_CLRRULECTRS	0x0020
++#define PF_OPT_USEDNS		0x0040
++
++#define PF_TH_ALL		0xFF
++
++#define PF_NAT_PROXY_PORT_LOW	50001
++#define PF_NAT_PROXY_PORT_HIGH	65535
++
++#define FCNT_NAMES { \
++	"searches", \
++	"inserts", \
++	"removals", \
++	NULL \
++}
++
++struct pfctl {
++	int dev;
++	int opts;
++	u_int16_t rule_nr;
++	struct pfioc_rule *prule;
++	struct pfioc_nat *pnat;
++	struct pfioc_binat *pbinat;
++	struct pfioc_rdr *prdr;
++};
++
++int	 pfctl_add_rule(struct pfctl *, struct pf_rule *);
++int	 pfctl_add_nat(struct pfctl *, struct pf_nat *);
++int	 pfctl_add_binat(struct pfctl *, struct pf_binat *);
++int	 pfctl_add_rdr(struct pfctl *, struct pf_rdr *);
++
++int	 pfctl_set_timeout(struct pfctl *, const char *, int);
++int	 pfctl_set_optimization(struct pfctl *, const char *);
++int	 pfctl_set_limit(struct pfctl *, const char *, unsigned int);
++int	 pfctl_set_logif(struct pfctl *, char *);
++
++int	 parse_rules(FILE *, struct pfctl *);
++int	 parse_flags(char *);
++
++void	 print_rule(struct pf_rule *);
++void	 print_nat(struct pf_nat *);
++void	 print_binat(struct pf_binat *);
++void	 print_rdr(struct pf_rdr *);
++void	 print_status(struct pf_status *);
++
++int	 unmask(struct pf_addr *, u_int8_t);
++
++struct icmptypeent {
++	char *name;
++	u_int8_t type;
++};
++
++struct icmpcodeent {
++	char *name;
++	u_int8_t type;
++	u_int8_t code;
++};
++
++const struct icmptypeent *geticmptypebynumber(u_int8_t, u_int8_t);
++const struct icmptypeent *geticmptypebyname(char *, u_int8_t);
++const struct icmpcodeent *geticmpcodebynumber(u_int8_t, u_int8_t, u_int8_t);
++const struct icmpcodeent *geticmpcodebyname(u_long, char *, u_int8_t);
++
++struct pf_timeout {
++	const char	*name;
++	int		 timeout;
++};
++
++#define PFCTL_FLAG_ALL		0x01
++#define PFCTL_FLAG_FILTER	0x02
++#define PFCTL_FLAG_NAT		0x04
++#define PFCTL_FLAG_OPTION	0x08
++
++extern const struct pf_timeout pf_timeouts[];
++
++#endif /* _PFCTL_PARSER_H_ */
+diff -Nur /usr/src/sbin.orig/pflogd/Makefile /usr/src/sbin/pflogd/Makefile
+--- /usr/src/sbin.orig/pflogd/Makefile	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pflogd/Makefile	Fri Jul 11 07:51:42 2025
+@@ -0,0 +1,11 @@
++#	$OpenBSD: Makefile,v 1.3 2002/05/11 00:20:20 espie Exp $
++
++CFLAGS+=-Wall -Werror
++LDADD+= -lpcap -lutil
++DPAPP+=	${LIBPCAP} ${LIBUTIL}
++
++PROG=	pflogd
++SRCS=	pflogd.c
++MAN=	pflogd.8
++
++.include <bsd.prog.mk>
+diff -Nur /usr/src/sbin.orig/pflogd/pflogd.8 /usr/src/sbin/pflogd/pflogd.8
+--- /usr/src/sbin.orig/pflogd/pflogd.8	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pflogd/pflogd.8	Fri Jul 11 07:51:42 2025
+@@ -0,0 +1,174 @@
++.\"	$OpenBSD: pflogd.8,v 1.15 2002/04/23 23:09:51 frantzen Exp $
++.\"
++.\" Copyright (c) 2001 Can Erkin Acar.  All rights reserved.
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\" 1. Redistributions of source code must retain the above copyright
++.\"    notice, this list of conditions and the following disclaimer.
++.\" 2. Redistributions in binary form must reproduce the above copyright
++.\"    notice, this list of conditions and the following disclaimer in the
++.\"    documentation and/or other materials provided with the distribution.
++.\" 3. The name of the author may not be used to endorse or promote products
++.\"    derived from this software without specific prior written permission.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++.\" IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++.\" OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++.\" IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++.\" NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++.\" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++.\" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++.\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++.\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++.\"
++.Dd July 9, 2001
++.Dt PFLOGD 8
++.Os
++.Sh NAME
++.Nm pflogd
++.Nd packet filter logging daemon
++.Sh SYNOPSIS
++.Nm pflogd
++.Op Fl D
++.Op Fl d Ar delay
++.Op Fl f Ar filename
++.Op Fl s Ar snaplen
++.Op Ar expression
++.Sh DESCRIPTION
++.Nm
++is a background daemon which reads packets logged by
++.Xr pf 4
++to the packet logging interface
++.Pa pflog0
++and writes the packets to a logfile (normally
++.Pa /var/log/pflog )
++in
++.Xr tcpdump 8
++binary format.
++These logs can be reviewed later using the
++.Ar -r
++option of
++.Xr tcpdump 8 ,
++hopefully offline in case there are bugs in the packet parsing code of
++.Xr tcpdump 8 .
++.Pp
++.Nm
++closes and then re-opens the log file when it receives
++.Va SIGHUP ,
++permitting
++.Xr newsyslog 8
++to rotate logfiles automatically.
++.Va SIGALRM
++causes
++.Nm
++to flush the current logfile buffers to the disk, thus making the most
++recent logs available.
++The buffers are also flushed every
++.Ar delay
++seconds.
++.Pp
++If the log file contains data after a restart or a
++.Va SIGHUP ,
++new logs are appended to the existing file.
++If the existing log file was created with a different snaplen,
++.Nm
++temporarily uses the old snaplen to keep the log file consistent.
++.Pp
++The options are as follows:
++.Bl -tag -width Ds
++.It Fl d Ar delay
++Time in seconds to delay between automatic flushes of the file.
++This may be specified with a value between 5 and 3600 seconds.
++If not specified, the default is 60 seconds.
++.It Fl D
++Debugging mode.
++.Nm
++does not disassociate from the controlling terminal.
++.It Fl f Ar filename
++Log output filename.
++Default is
++.Pa /var/log/pflog .
++.It Fl s Ar snaplen
++Analyze at most the first
++.Ar snaplen
++bytes of data from each packet rather than the default of 96.
++The default of 96 is adequate for IP, ICMP, TCP, and UDP headers but may
++truncate protocol information for other protocols.
++Other file parsers may desire a higher snaplen.
++.It Ar expression
++selects which packets will be dumped, using the regular language of
++.Xr tcpdump 8 .
++.El
++.Sh EXAMPLES
++Log specific tcp packets to a different log file with a large snaplen
++(useful with a log-all rule to dump complete sessions)
++.Bd -literal -offset indent
++# pflogd -s 1600 -f suspicious.log port 80 and host evilhost
++.Ed
++.Pp
++Display binary logs:
++.Bd -literal -offset indent
++# tcpdump -n -e -ttt -r /var/log/pflog
++.Ed
++.Pp
++Display the logs in real time (this does not interfere with the
++operation of pflogd):
++.Bd -literal -offset indent
++# tcpdump -n -e -ttt -i pflog0
++.Ed
++.Pp
++Tcpdump has been extended to to be able to filter on the pfloghdr
++structure defined in net/if_pflog.h.  Tcpdump can restrict the output
++to packets logged on a specified interface, a rule number, a reason,
++a direction, an ip family or an action.
++.Bl -tag -width "reason match " -compact
++.It ip
++Address family equals IPv4.
++.It ip6
++Address family equals IPv6.
++.It ifname kue0
++Interface name equals "kue0"
++.It on kue0
++Interface name equals "kue0"
++.It rulenum 10
++Rule number equals 10.
++.It reason match
++Reason equals match.  Also accepts "bad-offset", "fragment", "short",
++"normalize" and "memory".
++.It action pass
++Action equals pass.  Also accepts "block".
++.It inbound
++The direction was inbound.
++.It outbound
++The direction was outbound.
++.El
++.Pp
++Display the logs in real time of inbound packets that were blocked on
++the wi0 interface:
++.Bd -literal -offset indent
++# tcpdump -n -e -ttt -i pflog0 inbound and action block and on wi0
++.Ed
++.Sh FILES
++.Bl -tag -width /var/run/pflogd.pid -compact
++.It Pa /var/run/pflogd.pid
++process ID of current
++.It Pa /var/log/pflog
++Default log file
++.El
++.Sh SEE ALSO
++.Xr pcap 3 ,
++.Xr pf 4 ,
++.Xr pf.conf 5 ,
++.Xr pflog 4 ,
++.Xr newsyslog 8 ,
++.Xr tcpdump 8
++.Sh AUTHORS
++Can Erkin Acar
++.Sh HISTORY
++The
++.Nm
++command appeared in
++.Ox 3.0 .
+diff -Nur /usr/src/sbin.orig/pflogd/pflogd.c /usr/src/sbin/pflogd/pflogd.c
+--- /usr/src/sbin.orig/pflogd/pflogd.c	Thu Jan  1 08:00:00 1970
++++ /usr/src/sbin/pflogd/pflogd.c	Fri Jul 11 08:44:10 2025
+@@ -0,0 +1,384 @@
++/*	$OpenBSD: pflogd.c,v 1.13 2002/09/03 18:28:49 deraadt Exp $	*/
++
++/*
++ * Copyright (c) 2001 Theo de Raadt
++ * Copyright (c) 2001 Can Erkin Acar
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *    - Redistributions of source code must retain the above copyright
++ *      notice, this list of conditions and the following disclaimer.
++ *    - Redistributions in binary form must reproduce the above
++ *      copyright notice, this list of conditions and the following
++ *      disclaimer in the documentation and/or other materials provided
++ *      with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include <sys/types.h>
++#include <sys/file.h>
++#include <sys/stat.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <pcap-int.h>
++#include <pcap.h>
++#include <syslog.h>
++#include <signal.h>
++#include <errno.h>
++#include <stdarg.h>
++#include <fcntl.h>
++#ifndef __FreeBSD__
++#include <util.h>
++#endif
++
++#define DEF_SNAPLEN 96		/* default plus allow for larger header of pflog */
++#define PCAP_TO_MS 500		/* pcap read timeout (ms) */
++#define PCAP_NUM_PKTS 1000	/* max number of packets to process at each loop */
++#define PCAP_OPT_FIL 0		/* filter optimization */
++#define FLUSH_DELAY 60		/* flush delay */
++
++#define PFLOGD_LOG_FILE		"/var/log/pflog"
++#define PFLOGD_DEFAULT_IF	"pflog0"
++
++pcap_t *hpcap;
++pcap_dumper_t *dpcap;
++
++int Debug = 0;
++int snaplen = DEF_SNAPLEN;
++
++volatile sig_atomic_t gotsig_close, gotsig_alrm, gotsig_hup;
++
++char *filename = PFLOGD_LOG_FILE;
++char *interface = PFLOGD_DEFAULT_IF;
++char *filter = 0;
++
++char errbuf[PCAP_ERRBUF_SIZE];
++
++int log_debug = 0;
++int delay = FLUSH_DELAY;
++
++char *copy_argv(char * const *argv);
++void logmsg(int priority, const char *message, ...);
++
++char *
++copy_argv(char * const *argv)
++{
++	int len = 0, n;
++	char *buf;
++
++	if (argv == NULL)
++		return NULL;
++
++	for (n = 0; argv[n]; n++)
++		len += strlen(argv[n])+1;
++	if (len <= 0)
++		return NULL;
++
++	buf = malloc(len);
++	if (buf == NULL)
++		return NULL;
++
++	strlcpy(buf, argv[0], len);
++	for (n = 1; argv[n]; n++) {
++		strlcat(buf, " ", len);
++		strlcat(buf, argv[n], len);
++	}
++	return buf;
++}
++
++void
++logmsg(int pri, const char *message, ...)
++{
++	va_list ap;
++	va_start(ap, message);
++
++	if (log_debug)
++		vfprintf(stderr, message, ap);
++	else
++		vsyslog(pri, message, ap);
++	va_end(ap);
++}
++
++void
++usage(void)
++{
++	fprintf(stderr, "usage: pflogd [-D] [-d delay] [-f filename] ");
++	fprintf(stderr, "[-s snaplen] [expression]\n");
++	exit(1);
++}
++
++void
++sig_close(int signal)
++{
++	gotsig_close = 1;
++}
++
++void
++sig_hup(int signal)
++{
++	gotsig_hup = 1;
++}
++
++void
++sig_alrm(int signal)
++{
++	gotsig_alrm = 1;
++}
++
++int
++init_pcap(void)
++{
++	struct bpf_program bprog;
++	pcap_t *oldhpcap = hpcap;
++
++	hpcap = pcap_open_live(interface, snaplen, 1, PCAP_TO_MS, errbuf);
++	if (hpcap == NULL) {
++		logmsg(LOG_ERR, "Failed to initialize: %s\n", errbuf);
++		hpcap = oldhpcap;
++		return (-1);
++	}
++
++	if (filter) {
++		if (pcap_compile(hpcap, &bprog, filter, PCAP_OPT_FIL, 0) < 0)
++			logmsg(LOG_WARNING, "%s\n", pcap_geterr(hpcap));
++		else if (pcap_setfilter(hpcap, &bprog) < 0)
++			logmsg(LOG_WARNING, "%s\n", pcap_geterr(hpcap));
++	}
++
++	if (pcap_datalink(hpcap) != DLT_PFLOG) {
++		logmsg(LOG_ERR, "Invalid datalink type\n");
++		pcap_close(hpcap);
++		hpcap = oldhpcap;
++		return (-1);
++	}
++
++	if (oldhpcap)
++		pcap_close(oldhpcap);
++
++	snaplen = pcap_snapshot(hpcap);
++	logmsg(LOG_NOTICE, "Listening on %s, logging to %s, snaplen %d\n",
++		interface, filename, snaplen);
++	return (0);
++}
++
++int
++reset_dump(void)
++{
++	struct pcap_file_header hdr;
++	struct stat st;
++	int tmpsnap;
++	FILE *fp;
++
++	if (hpcap == NULL)
++		return 1;
++	if (dpcap) {
++		pcap_dump_close(dpcap);
++		dpcap = 0;
++	}
++
++	/*
++	 * Basically reimpliment pcap_dump_open() because it truncates
++	 * files and duplicates headers and such.
++	 */
++	fp = fopen(filename, "a+");
++	if (fp == NULL) {
++		snprintf(hpcap->errbuf, PCAP_ERRBUF_SIZE, "%s: %s",
++		    filename, pcap_strerror(errno));
++		logmsg(LOG_ERR, "Error: %s\n", pcap_geterr(hpcap));
++		return 1;
++	}
++	if (fstat(fileno(fp), &st) == -1) {
++		snprintf(hpcap->errbuf, PCAP_ERRBUF_SIZE, "%s: %s",
++		    filename, pcap_strerror(errno));
++		logmsg(LOG_ERR, "Error: %s\n", pcap_geterr(hpcap));
++		return 1;
++	}
++
++	dpcap = (pcap_dumper_t *)fp;
++
++#define TCPDUMP_MAGIC 0xa1b2c3d4
++
++	if (st.st_size == 0) {
++		if (snaplen != pcap_snapshot(hpcap)) {
++			logmsg(LOG_NOTICE, "Using snaplen %d\n", snaplen);
++			if (init_pcap()) {
++				logmsg(LOG_ERR, "Failed to initialize\n");
++				if (hpcap == NULL) return (-1);
++				logmsg(LOG_NOTICE, "Using old settings\n");
++			}
++		}
++		hdr.magic = TCPDUMP_MAGIC;
++		hdr.version_major = PCAP_VERSION_MAJOR;
++		hdr.version_minor = PCAP_VERSION_MINOR;
++		hdr.thiszone = hpcap->tzoff;
++		hdr.snaplen = hpcap->snapshot;
++		hdr.sigfigs = 0;
++		hdr.linktype = hpcap->linktype;
++
++		if (fwrite((char *)&hdr, sizeof(hdr), 1, fp) != 1) {
++			dpcap = NULL;
++			fclose(fp);
++			return (-1);
++		}
++		return (0);
++	}
++
++	/*
++	 * XXX Must read the file, compare the header against our new
++	 * options (in particular, snaplen) and adjust our options so
++	 * that we generate a correct file.
++	 */
++	(void) fseek(fp, 0L, SEEK_SET);
++	if (fread((char *)&hdr, sizeof(hdr), 1, fp) == 1) {
++		if (hdr.magic == TCPDUMP_MAGIC &&
++		    hdr.version_major == PCAP_VERSION_MAJOR &&
++		    hdr.version_minor == PCAP_VERSION_MINOR &&
++		    hdr.snaplen != snaplen) {
++			logmsg(LOG_WARNING,
++			    "Existing file specifies a snaplen of %d, using it",
++			    hdr.snaplen);
++			tmpsnap = snaplen;
++			snaplen = hdr.snaplen;
++			if (init_pcap()) {
++				logmsg(LOG_ERR, "Failed to re-initialize\n");
++				if (hpcap == 0)
++					return (-1);
++				logmsg(LOG_NOTICE,
++					"Using old settings, offset: %d\n",
++					st.st_size);
++			}
++			snaplen = tmpsnap;
++		}
++	}
++
++	(void) fseek(fp, 0L, SEEK_END);
++	return (0);
++}
++
++int
++main(int argc, char **argv)
++{
++	struct pcap_stat pstat;
++	int ch, np;
++
++	while ((ch = getopt(argc, argv, "Dd:s:f:")) != -1) {
++		switch (ch) {
++		case 'D':
++			Debug = 1;
++			break;
++		case 'd':
++			delay = atoi(optarg);
++			if (delay < 5 || delay > 60*60)
++				usage();
++			break;
++		case 'f':
++			filename = optarg;
++			break;
++		case 's':
++			snaplen = atoi(optarg);
++			if (snaplen <= 0)
++				snaplen = DEF_SNAPLEN;
++			break;
++		default:
++			usage();
++		}
++
++	}
++
++	log_debug = Debug;
++	argc -= optind;
++	argv += optind;
++
++	if (!Debug) {
++		openlog("pflogd", LOG_PID | LOG_CONS, LOG_DAEMON);
++		if (daemon(0, 0)) {
++			logmsg(LOG_WARNING, "Failed to become daemon: %s",
++				strerror(errno));
++		}
++#if 0
++		pidfile(NULL);
++#endif
++	}
++
++	(void)umask(S_IRWXG | S_IRWXO);
++
++	signal(SIGTERM, sig_close);
++	signal(SIGINT, sig_close);
++	signal(SIGQUIT, sig_close);
++	signal(SIGALRM, sig_alrm);
++	signal(SIGHUP, sig_hup);
++	alarm(delay);
++
++	if (argc) {
++		filter = copy_argv(argv);
++		if (filter == 0)
++			logmsg(LOG_NOTICE, "Failed to form filter expression");
++	}
++
++	if (init_pcap()) {
++		logmsg(LOG_ERR, "Exiting, init failure\n");
++		exit(1);
++	}
++
++	if (reset_dump()) {
++		logmsg(LOG_ERR, "Failed to open log file %s\n", filename);
++		pcap_close(hpcap);
++		exit(1);
++	}
++
++	while (1) {
++		np = pcap_dispatch(hpcap, PCAP_NUM_PKTS, pcap_dump, (u_char *)dpcap);
++		if (np < 0)
++			logmsg(LOG_NOTICE, "%s\n", pcap_geterr(hpcap));
++
++		if (gotsig_close)
++			break;
++		if (gotsig_hup) {
++			if (reset_dump()) {
++				logmsg(LOG_ERR, "Failed to open log file!\n");
++				break;
++			}
++			logmsg(LOG_NOTICE, "Reopened logfile\n");
++			gotsig_hup = 0;
++		}
++
++		if (gotsig_alrm) {
++			if (dpcap)
++				fflush((FILE *)dpcap);		/* XXX */
++			gotsig_alrm = 0;
++			alarm(delay);
++		}
++	}
++
++	logmsg(LOG_NOTICE, "Exiting due to signal\n");
++	if (dpcap)
++		pcap_dump_close(dpcap);
++
++	if (pcap_stats(hpcap, &pstat) < 0)
++		logmsg(LOG_WARNING, "Reading stats: %s\n", pcap_geterr(hpcap));
++	else
++		logmsg(LOG_NOTICE, "%d packets received, %d dropped\n",
++		    pstat.ps_recv, pstat.ps_drop);
++
++	pcap_close(hpcap);
++	if (!Debug)
++		closelog();
++	return 0;
++}

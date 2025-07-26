@@ -1,1 +1,21 @@
-
+--- /dev/MAKEDEV.orig	Sat May 10 23:02:54 2025
++++ /dev/MAKEDEV	Sat May 10 23:07:08 2025
+@@ -330,6 +330,7 @@
+ 	sh MAKEDEV usb usb0 uhid0 ums0 ulpt0 ugen0	# cdev, USB devices
+ 	sh MAKEDEV urio0 uscanner0 umodem0 ucom0	# cdev, USB devices too
+ 	sh MAKEDEV bpf0 bpf1 bpf2 bpf3 			# cdev, network
++	sh MAKEDEV pf					# cdev, network
+ 	sh MAKEDEV ipl tun0 tun1 tun2 tun3		# cdev, network
+ 	sh MAKEDEV tap0 tap1 tap2 tap3			# cdev, network
+ 	sh MAKEDEV ch0 perfmon tw0			# cdev, miscellaneous
+@@ -1134,6 +1135,10 @@
+ 		unit=$(($unit + 1))
+ 	done
+ 	;;
++
++pf)
++        mknod pf c 200 0
++        ;;
+ 
+ speaker)
+ 	mknod speaker c 26 0

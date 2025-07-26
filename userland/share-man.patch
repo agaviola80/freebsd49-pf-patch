@@ -1,0 +1,2453 @@
+diff -Nur /usr/src/share.orig/man/man4/Makefile /usr/src/share/man/man4/Makefile
+--- /usr/src/share.orig/man/man4/Makefile	Fri Jul 11 08:12:58 2025
++++ /usr/src/share/man/man4/Makefile	Fri Jul 11 17:51:40 2025
+@@ -133,6 +133,8 @@
+ 	pcm.4 \
+ 	pcn.4 \
+ 	pcvt.4 \
++	pf.4 \
++	pflog.4 \
+ 	polling.4 \
+ 	ppbus.4 \
+ 	ppc.4 \
+diff -Nur /usr/src/share.orig/man/man4/pf.4 /usr/src/share/man/man4/pf.4
+--- /usr/src/share.orig/man/man4/pf.4	Thu Jan  1 08:00:00 1970
++++ /usr/src/share/man/man4/pf.4	Fri Jul 11 17:47:15 2025
+@@ -0,0 +1,358 @@
++.\"	$OpenBSD: pf.4,v 1.17 2002/07/15 14:04:28 pb Exp $
++.\"
++.\" Copyright (C) 2001, Kjell Wooding.  All rights reserved.
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\" 1. Redistributions of source code must retain the above copyright
++.\"    notice, this list of conditions and the following disclaimer.
++.\" 2. Redistributions in binary form must reproduce the above copyright
++.\"    notice, this list of conditions and the following disclaimer in the
++.\"    documentation and/or other materials provided with the distribution.
++.\" 3. Neither the name of the project nor the names of its contributors
++.\"    may be used to endorse or promote products derived from this software
++.\"    without specific prior written permission.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
++.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE PROJECT OR CONTRIBUTORS BE LIABLE
++.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++.\" SUCH DAMAGE.
++.\"
++.Dd June 24, 2001
++.Dt PF 4
++.Os
++.Sh NAME
++.Nm pf
++.Nd packet filter
++.Sh SYNOPSIS
++.Cd "pseudo-device pf 1"
++.Sh DESCRIPTION
++Packet filtering takes place in the kernel.
++A pseudo-device, /dev/pf, allows userland processes to control the
++behavior of the packet filter through an
++.Xr ioctl 2
++interface.
++There are commands to enable and disable the filter, load rule sets,
++add and remove individual rules or retrieve state table entries and
++statistics.
++The most commonly used functions are covered by
++.Xr pfctl 8 .
++.Pp
++Manipulations like loading a rule set that involve more than a single
++ioctl call require a so-called ticket, which prevents the occurance of
++multiple concurrent manipulations.
++.Pp
++Fields of ioctl parameter structures that refer to packet data (like
++addresses and ports) are generally expected in network byte-order.
++.Sh FILES
++.Bl -tag -width /dev/pf -compact
++.It Pa /dev/pf
++packet filtering device.
++.El
++.Sh IOCTL INTERFACE
++pf supports the following
++.Xr ioctl 2
++commands:
++.Bl -tag -width xxxxxx
++.It Dv DIOCSTART
++Starts the packet filter.
++.It Dv DIOCSTOP
++Stops the packet filter.
++.It Dv DIOCBEGINRULES  Fa "u_int32_t"
++Clears the inactive filter rule set, returns ticket for subsequent
++DIOCADDRULE and DIOCCOMMITRULES calls.
++.It Dv DIOCADDRULE     Fa "struct pfioc_rule"
++.Bd -literal
++struct pfioc_rule {
++	u_int32_t	 ticket;
++	u_int32_t	 nr;
++	struct pf_rule	 rule;
++};
++.Ed
++.Pp
++Adds filter
++.Va rule
++at the end of the inactive filter rule set.
++Requires
++.Va ticket
++obtained through preceding DIOCBEGINRULES call.
++.Va nr
++is ignored.
++.It Dv DIOCCOMMITRULES Fa "u_int32_t"
++Switch inactive to active filter rule set.
++Requires
++.Va ticket .
++.It Dv DIOCGETRULES    Fa "struct pfioc_rule"
++Returns
++.Va ticket
++for subsequent DIOCGETRULE calls and
++.Va nr
++of rules in the active filter rule set.
++.It Dv DIOCGETRULE     Fa "struct pfioc_rule"
++Returns filter
++.Va rule
++number
++.Va nr
++using
++.Va ticket
++obtained through a preceding DIOCGETRULES call.
++.It Dv DIOCBEGINNATS   Fa "u_int32_t"
++.It Dv DIOCADDNAT      Fa "struct pfioc_nat"
++.Bd -literal
++struct pfioc_nat {
++	u_int32_t	 ticket;
++	u_int32_t	 nr;
++	struct pf_nat	 nat;
++};
++.Ed
++.It Dv DIOCCOMMITNATS  Fa "u_int32_t"
++.It Dv DIOCGETNATS     Fa "struct pfioc_nat"
++.It Dv DIOCGETNAT      Fa "struct pfioc_nat"
++.It Dv DIOCBEGINBINATS Fa "u_int32_t"
++.It Dv DIOCADDBINAT    Fa "struct pfioc_binat"
++.Bd -literal
++struct pfioc_binat {
++	u_int32_t	 ticket;
++	u_int32_t	 nr;
++	struct pf_binat	 binat;
++};
++.Ed
++.It Dv DIOCCOMMITBINATS Fa "u_int32_t"
++.It Dv DIOCGETBINATS   Fa "struct pfioc_binat"
++.It Dv DIOCGETBINAT    Fa "struct pfioc_binat"
++.It Dv DIOCBEGINRDRS   Fa "u_int32_t"
++.It Dv DIOCADDRDR      Fa "struct pfioc_rdr"
++.Bd -literal
++struct pfioc_rdr {
++	u_int32_t	 ticket;
++	u_int32_t	 nr;
++	struct pf_rdr	 rdr;
++};
++.Ed
++.It Dv DIOCCOMMITRDRS  Fa "u_int32_t"
++.It Dv DIOCGETRDRS     Fa "struct pfioc_rdr"
++.It Dv DIOCGETRDR      Fa "struct pfioc_rdr"
++.It Dv DIOCCLRSTATES
++Clears the state table.
++.It Dv DIOCADDSTATE    Fa "struct pfioc_state"
++Adds a state entry.
++.It Dv DIOCGETSTATE    Fa "struct pfioc_state"
++.Bd -literal
++struct pfioc_state {
++	u_int32_t	 nr;
++	struct pf_state	 state;
++};
++.Ed
++.Pp
++Extracts the entry with the specified number from the state table.
++.It Dv DIOCKILLSTATES  Fa "struct pfioc_state_kill"
++Removes matching entries from the state table.
++Returns the number of killed states in psk_af.
++.Bd -literal
++struct pfioc_state_kill {
++	int			psk_af;
++	int			psk_proto;
++	struct pf_rule_addr	psk_src;
++	struct pf_rule_addr	psk_dst;
++};
++.Ed
++.It Dv DIOCSETSTATUSIF Fa "struct pfioc_if"
++.Bd -literal
++struct pfioc_if {
++	char		 ifname[IFNAMSIZ];
++};
++.Ed
++.Pp
++Specifies the interface for which statistics are accumulated.
++.It Dv DIOCGETSTATUS   Fa "struct pf_status"
++.Bd -literal
++struct pf_status {
++	u_int64_t	 counters[PFRES_MAX];
++	u_int64_t	 fcounters[FCNT_MAX];
++	u_int64_t	 pcounters[2][2][3];
++	u_int64_t	 bcounters[2][2];
++	u_int32_t	 running;
++	u_int32_t	 states;
++	u_int32_t	 since;
++	u_int32_t	 debug;
++};
++.Ed
++.Pp
++Gets the internal packet filter statistics.
++.It Dv DIOCCLRSTATUS
++Clears the internal packet filter statistics.
++.It Dv DIOCNATLOOK     Fa "struct pfioc_natlook"
++Looks up a state table entry by source and destination addresses and ports.
++.Bd -literal
++struct pfioc_natlook {
++	struct pf_addr	 saddr;
++	struct pf_addr	 daddr;
++	struct pf_addr	 rsaddr;
++	struct pf_addr	 rdaddr;
++	u_int16_t	 sport;
++	u_int16_t	 dport;
++	u_int16_t	 rsport;
++	u_int16_t	 rdport;
++	u_int8_t	 af;
++	u_int8_t	 proto;
++	u_int8_t	 direction;
++};
++.Ed
++.It Dv DIOCSETDEBUG    Fa "u_int32_t"
++Sets the debug level.
++.Bd -literal
++enum	{ PF_DEBUG_NONE=0, PF_DEBUG_URGENT=1, PF_DEBUG_MISC=2 };
++.Ed
++.It Dv DIOCGETSTATES   Fa "struct pfioc_states"
++.Bd -literal
++struct pfioc_states {
++	int	ps_len;
++        union {
++		caddr_t psu_buf;
++		struct pf_state *psu_states;
++	} ps_u;
++#define ps_buf		ps_u.psu_buf
++#define ps_states	ps_u.psu_states
++};
++.Ed
++.It Dv DIOCCHANGERULE  Fa "struct pfioc_changerule"
++Adds or removes a filter rule in the active filter rule set.
++.Bd -literal
++struct pfioc_changerule {
++	u_int32_t	 action;
++	struct pf_rule	 oldrule;
++	struct pf_rule	 newrule;
++};
++
++enum	{ PF_CHANGE_ADD_HEAD=1, PF_CHANGE_ADD_TAIL=2,
++	  PF_CHANGE_ADD_BEFORE=3, PF_CHANGE_ADD_AFTER=4,
++	  PF_CHANGE_REMOVE=5 };
++.Ed
++.It Dv DIOCCHANGENAT   Fa "struct pfioc_changenat"
++Adds or removes a nat rule in the active nat rule set.
++.Bd -literal
++struct pfioc_changenat {
++	u_int32_t	 action;
++	struct pf_nat	 oldnat;
++	struct pf_nat	 newnat;
++};
++.Ed
++.It Dv DIOCCHANGEBINAT   Fa "struct pfioc_changebinat"
++Adds or removes a binat rule in the active binat rule set.
++.Bd -literal
++struct pfioc_changebinat {
++	u_int32_t	action;
++	struct pf_binat	oldbinat;
++	struct pf_binat	newbinat;
++};
++.Ed
++.It Dv DIOCCHANGERDR   Fa "struct pfioc_changerdr"
++Adds or removes a rdr rule in the active rdr rule set.
++.Bd -literal
++struct pfioc_changerdr {
++	u_int32_t	 action;
++	struct pf_rdr	 oldrdr;
++	struct pf_rdr	 newrdr;
++};
++.Ed
++.It Dv DIOCSETTIMEOUT  Fa "struct pfioc_tm"
++.Bd -literal
++struct pfioc_tm {
++	int		 timeout;
++	int		 seconds;
++};
++.Ed
++.It Dv DIOCGETTIMEOUT  Fa "struct pfioc_tm"
++.It Dv DIOCCLRRULECTRS
++Clear per-rule statistics.
++.It Dv DIOCSETLIMIT   Fa "struct pfioc_limit"
++Sets hard limits on the memory pools used by the packet filter.
++.Bd -literal
++struct pfioc_limit {
++	int		index;
++	unsigned	limit;
++};
++.Ed
++.It Dv DIOCGETLIMIT   Fa "struct pfioc_limit"
++.El
++.Sh EXAMPLES
++The following example demonstrates how to use the DIOCNATLOOK command
++to find the internal host/port of a NATed connection.
++.Bd -literal
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <sys/ioctl.h>
++#include <sys/fcntl.h>
++#include <net/if.h>
++#include <netinet/in.h>
++#include <net/pfvar.h>
++#include <stdio.h>
++
++u_int32_t
++read_address(const char *s)
++{
++	int a, b, c, d;
++
++	sscanf(s, "%i.%i.%i.%i", &a, &b, &c, &d);
++	return htonl(a << 24 | b << 16 | c << 8 | d);
++}
++
++void
++print_address(u_int32_t a)
++{
++	a = ntohl(a);
++	printf("%d.%d.%d.%d", a >> 24 & 255, a >> 16 & 255,
++	    a >> 8 & 255, a & 255);
++}
++
++int
++main(int argc, char *argv[])
++{
++	struct pfioc_natlook nl;
++	int dev;
++
++	if (argc != 5) {
++		printf("%s <gwy addr> <gwy port> <ext addr> <ext port>\\n",
++		    argv[0]);
++		return 1;
++	}
++
++	dev = open("/dev/pf", O_RDWR);
++	if (dev == -1)
++		err(0, "open(\\"/dev/pf\\") failed");
++
++	memset(&nl, 0, sizeof(struct pfioc_natlook));
++	nl.saddr.v4.s_addr	= read_address(argv[1]);
++	nl.sport		= htons(atoi(argv[2]));
++	nl.daddr.v4.s_addr	= read_address(argv[3]);
++	nl.dport		= htons(atoi(argv[4]));
++	nl.af			= AF_INET;
++	nl.proto		= IPPROTO_TCP;
++	nl.direction		= PF_IN;
++
++        if (ioctl(dev, DIOCNATLOOK, &nl))
++		err(0, "DIOCNATLOOK");
++
++	printf("internal host ");
++	print_address(nl.rsaddr.v4.s_addr);
++	printf(":%u\\n", ntohs(nl.rsport));
++	return 0;
++}
++.Ed
++.Sh SEE ALSO
++.Xr bridge 4 ,
++.Xr pflog 4 ,
++.Xr pfctl 8
++.Sh HISTORY
++The
++.Nm
++packet filtering mechanism first appeared in
++.Ox 3.0 .
+diff -Nur /usr/src/share.orig/man/man4/pflog.4 /usr/src/share/man/man4/pflog.4
+--- /usr/src/share.orig/man/man4/pflog.4	Thu Jan  1 08:00:00 1970
++++ /usr/src/share/man/man4/pflog.4	Fri Jul 11 17:47:24 2025
+@@ -0,0 +1,89 @@
++.\"	$OpenBSD: pflog.4,v 1.1 2001/12/10 22:02:05 weingart Exp $
++.\"
++.\" Copyright (c) 2001 Tobias Weingartner
++.\" All rights reserved.
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\" 1. Redistributions of source code must retain the above copyright
++.\"    notice, this list of conditions and the following disclaimer.
++.\" 2. Redistributions in binary form must reproduce the above copyright
++.\"    notice, this list of conditions and the following disclaimer in the
++.\"    documentation and/or other materials provided with the distribution.
++.\" 3. All advertising materials mentioning features or use of this software
++.\"    must display the following acknowledgement:
++.\"    This product includes software developed by Tobias Weingartner.
++.\" 4. The name of the author may not be used to endorse or promote products
++.\"    derived from this software without specific prior written permission.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++.\" IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++.\" OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++.\" IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++.\" NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++.\" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++.\" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++.\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++.\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++.\"
++.Dd December 10, 2001
++.Dt PFLOG 4
++.Os
++.Sh NAME
++.Nm pflog
++.Nd packet filter logging interface
++.Sh SYNOPSIS
++.Sy pseudo-device Nm pflog Em <number>
++.Sh DESCRIPTION
++The
++.Nm pflog
++interface is the interface the packet filter,
++.Xr pf 4 ,
++copies all the packets to which it has been configured to log.
++In this way, all logged packets can easily be monitored in real
++time by invoking
++.Xr tcpdump 8
++on the
++.Nm
++interface.
++.Pp
++Each packet retrieved on this interface has a header associated
++with it of length
++.Dv PFLOG_HDRLEN .
++This header documents the address family, interface name, rule
++number, reason, action, and direction of the packet that was logged.
++This structure, defined in
++.Pa <net/if_pflog.h>
++looks like
++.Bd -literal -offset indent
++struct pfloghdr {
++	u_int32_t af;
++	char ifname[IFNAMSIZ];
++	short rnr;
++	u_short reason;
++	u_short action;
++	u_short dir;
++};
++.Ed
++.Sh EXAMPLES
++.Bd -literal -offset indent
++# ifconfig pflog0 up
++# tcpdump -n -e -ttt -i pflog0
++.Ed
++.Sh SEE ALSO
++.Xr inet 4 ,
++.Xr inet6 4 ,
++.Xr netintro 4 ,
++.Xr pf 4 ,
++.Xr ifconfig 8 ,
++.Xr pflogd 8 ,
++.Xr tcpdump 8
++.Sh HISTORY
++The
++.Nm
++device first appeared in
++.Ox 3.0 .
++.\" .Sh BUGS
++.\" Anything here?
+diff -Nur /usr/src/share.orig/man/man5/Makefile /usr/src/share/man/man5/Makefile
+--- /usr/src/share.orig/man/man5/Makefile	Fri Jul 11 08:12:58 2025
++++ /usr/src/share/man/man5/Makefile	Fri Jul 11 17:50:17 2025
+@@ -7,7 +7,7 @@
+ 	hosts.5 hosts.equiv.5 hosts.lpd.5 intro.5 kernel.conf.5 link.5 \
+ 	linprocfs.5 mailer.conf.5 make.conf.5 motd.5 msdos.5 networks.5 \
+ 	passwd.5 pbm.5 \
+-	periodic.conf.5 phones.5 procfs.5 protocols.5 rc.conf.5 \
++	periodic.conf.5 pf.conf.5 phones.5 procfs.5 protocols.5 rc.conf.5 \
+ 	remote.5 resolver.5 services.5 shells.5 stab.5 sysctl.conf.5 \
+ 	types.5 utmp.5
+ 
+diff -Nur /usr/src/share.orig/man/man5/pf.conf.5 /usr/src/share/man/man5/pf.conf.5
+--- /usr/src/share.orig/man/man5/pf.conf.5	Thu Jan  1 08:00:00 1970
++++ /usr/src/share/man/man5/pf.conf.5	Fri Jul 11 17:47:52 2025
+@@ -0,0 +1,1114 @@
++.\"	$OpenBSD: pf.conf.5,v 1.89 2002/09/30 23:41:46 frantzen Exp $
++.\"
++.\" Copyright (c) 2002, Daniel Hartmeier
++.\" All rights reserved.
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\"
++.\"    - Redistributions of source code must retain the above copyright
++.\"      notice, this list of conditions and the following disclaimer.
++.\"    - Redistributions in binary form must reproduce the above
++.\"      copyright notice, this list of conditions and the following
++.\"      disclaimer in the documentation and/or other materials provided
++.\"      with the distribution.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++.\" "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++.\" LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++.\" FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++.\" COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++.\" BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++.\" LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++.\" CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++.\" ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++.\" POSSIBILITY OF SUCH DAMAGE.
++.\"
++.Dd July 2, 2002
++.Dt PF.CONF 5
++.Os
++.Sh NAME
++.Nm pf.conf
++.Nd filtering and translation (NAT) rules file for the
++packet filter
++.Sh DESCRIPTION
++The
++.Xr pf 4
++packet filter drops, passes and modifies packets according to the
++rules defined in this file.
++Filter rules are used to selectively pass traffic while translation
++rules specify which addresses are to be mapped and which are to be
++redirected.
++For each packet inspected by the filter, the set of rules is evaluated
++from top to bottom, and the last matching rule decides what action is
++performed.
++For each packet inspected by the translator, the set of rules is evaluated
++from top to bottom, and the first matching rule decides what action is
++performed.
++In short: filters are last match, nat is first match.
++Rules must be in order: options, scrub, nat, filter.
++.Sh FILTER RULES
++While filter rules are typically manipulated using
++.Xr pfctl 8
++other utilities may be written using the
++.Xr ioctl 2
++interface described in
++.Xr pf 4 .
++.Pp
++For each packet processed by the packet filter, the filter rules are
++evaluated in sequential order, from first to last.
++Each rule either matches the packet or doesn't.
++The last matching rule decides what action is taken.
++.Pp
++If no rule matches the packet, the default action is
++.Em pass .
++.Pp
++To block everything by default and only pass packets
++that match explicit rules, one uses
++.Bd -literal
++.Cm block in all
++.Cm block out all
++.Ed
++.Pp
++as the first two rules.
++.Pp
++For each packet processed by the translator, the translation rules are
++evaluated in sequential order, from first to last.
++Each rule either matches the packet or doesn't.
++The first matching rule decides what action is taken.
++.Pp
++If no rule matches the packet, the default action is to pass the packet
++up to the filter unmodified.
++It should be noted that all translations of packets occur before
++the filters are applied.
++Hence, rules for redirected packets should specify the address and port
++after translation.
++Note that all translation rules apply only to packets that pass through
++the specified interface.
++For instance, redirecting port 80 on an external interface to an internal
++web server will only work for connections originating from the outside.
++Connections to the address of the external interface from local hosts will
++not be redirected, since such packets do not actually pass through the
++external interface.
++Redirections can't reflect packets back through the interface they arrive
++on, they can only be redirected to hosts connected to different interfaces
++or to the firewall itself.
++.Sh OPTIONS
++.Ss timeout
++.Bl -tag -width interval -compact
++.It Em interval
++Interval between purging expired states and fragments.
++.It Em frag
++Seconds before an unassembled fragment is expired.
++.El
++.Pp
++When a packet matches a stateful connection, the seconds to live of the
++connection will be updated to that of the proto.modifier which corresponds
++to the connection state.
++Each packet which matches this state will reset the TTL.
++Tuning these values may improve the performance of the
++firewall at the risk of dropping valid idled connections.
++.Pp
++.Bl -tag -width "tcp.established " -compact
++.It Em tcp.first
++The state after the first packet.
++.It Em tcp.opening
++The state before the destination host ever sends a packet.
++.It Em tcp.established
++The fully established state.
++.It Em tcp.closing
++The state after the first FIN has been sent.
++.It Em tcp.finwait
++The state after both FINs have been exchanged and the connection is closed.
++Some hosts (notably web servers on Solaris) send TCP packets even after closing
++the connection.
++Increasing tcp.finwait (and possibly tcp.closing) can prevent blocking of
++such packets.
++.It Em tcp.closed
++The state after one endpoint sends a RST.
++.El
++.Pp
++ICMP and UDP are handled in a similar fashion to TCP but with a much more
++limited set of states:
++.Pp
++.Bl -tag -width "udp.multiple " -compact
++.It Em udp.first
++The state after the first packet.
++.It Em udp.single
++The state if the source host sends more than one packet but the destination
++host has never sent one back.
++.It Em udp.multiple
++The state if both hosts have sent packets.
++.It Em icmp.first
++The state after the first packet.
++.It Em icmp.error
++The state after an icmp error came back in response to an icmp packet.
++.El
++.Pp
++Other protocols are handled similarly to UDP:
++.Pp
++.Bl -tag -width "other.multiple " -compact
++.It Em other.first
++.It Em other.single
++.It Em other.multiple
++.El
++.Pp
++Example:
++.Bd -literal
++    set timeout tcp.established 3600
++    set timeout { tcp.opening 30, tcp.closing 900 }
++.Ed
++.Ss loginterface
++Enable collection of packet and byte count statistics for the given interface.
++These statistics can be viewed using
++.Bd -literal
++    # pfctl -s info
++.Ed
++.Pp
++In this example pf is told to collect statistics on the interface named dc0:
++.Bd -literal
++    set loginterface dc0
++.Ed
++.Pp
++One can unset the loginterface using
++.Bd -literal
++    set loginterface none
++.Ed
++.Pp
++.Ss limit
++Sets hard limits on the memory pools used by the packet filter.
++See
++.Xr pool 9
++for an explanation of memory pools.
++.Pp
++For example,
++.Bd -literal
++    set limit states 20000
++.Ed
++.Pp
++sets the maximum number of entries in the memory pool used by state table
++entries (generated by 'keep state' rules) to 20000.
++.Bd -literal
++    set limit frags 20000
++.Ed
++.Pp
++sets the maximum number of entries in the memory pool used for fragment
++reassembly (generated by 'scrub' rules) to 20000.
++.Pp
++These can be combined:
++.Bd -literal
++    set limit { states 20000, frags 20000 }
++.Ed
++.Ss optimization
++Optimize the engine to one of the following network topographies or
++environments:
++.Bl -tag -width "O high-latency " -compact
++.It Em default
++A normal network environment.
++Suitable for almost all networks.
++.It Em normal
++Alias for
++.Em default
++.It Em high-latency
++A high-latency environment (such as a satellite connection)
++.It Em satellite
++Alias for
++.Em high-latency
++.It Em aggressive
++Aggressively expire connections when they are likely no longer valid.
++This can greatly reduce the memory usage of the firewall at the cost of
++dropping idle connections early.
++.It Em conservative
++Extremely conservative settings.
++Pains will be taken to avoid dropping legitimate connections at the
++expense of greater memory utilization (possibly much greater on a busy
++network) and slightly increased processor utilization.
++.El
++Example:
++.Bd -literal
++    set optimization aggressive
++.Ed
++.Sh ACTIONS
++.Bl -tag -width Fl
++.It Em block
++The packet is blocked.
++Optionally, the filter can return a TCP RST or ICMP UNREACHABLE packet
++to the sender, where applicable.
++Returning ICMP packets can have
++an ICMP code set by number or name, TCP RST can have a TTL set.
++.It Em pass
++The packet is passed.
++.It Em scrub
++The packet is run through normalization/defragmentation.
++Scrub rules are not considered last matching rules.
++IPv6 packets are not defragmented.
++.It Em binat
++A
++.Em binat
++rule specifies a bidirectional mapping between an external IP address
++and an internal IP address.
++.It Em nat
++A
++.Em nat
++rule specifies that IP addresses are to be changed as the packet
++traverses the given interface.
++This technique allows a single IP address
++on the translating host to support network traffic for a larger range of
++machines on an "inside" network.
++Although in theory any IP address can be used on the inside, it is strongly
++recommended that one of the address ranges defined by RFC 1918 be used.
++These netblocks are:
++.Bd -literal
++10.0.0.0    - 10.255.255.255 (all of net 10, i.e., 10/8)
++172.16.0.0  - 172.31.255.255 (i.e., 172.16/12)
++192.168.0.0 - 192.168.255.255 (i.e., 192.168/16)
++.Ed
++.It Em rdr
++The packet is redirected to another destination and possibly a
++different port.
++.Em rdr
++rules can optionally specify port ranges instead of single ports.
++\'rdr ... port 2000:2999 -> ... port 4000\' redirects ports 2000 to 2999
++(including port 2000 and 2999) to the same port 4000.
++\'rdr ... port 2000:2999 -> ... port 4000:*\' redirects port 2000 to 4000,
++2001 to 4001, ..., 2999 to 4999.
++.El
++.Sh PARAMETERS
++The rule parameters specify for what packets a rule applies.
++A packet always comes in on or goes out through one interface.
++Most parameters are optional.
++If a parameter is specified, the rule only applies to packets with
++matching attributes.
++Certain parameters can be expressed as lists, in which case
++.Em pfctl
++generates all needed rule combinations.
++.Ss in or out
++The rule applies to incoming or outgoing packets.
++Either
++.Em in
++or
++.Em out
++must be specified.
++To cover both directions, two rules are needed.
++.Ss log
++.Bl -tag -width Fl
++.It Em log
++In addition to the action specified, a log message is generated.
++.It Em log-all
++Used with 
++.Sq keep state
++or
++.Sq modulate state
++rules.
++Not only the packet that creates state is logged, but all packets of
++the connection.
++.El
++.Pp
++The logged packets are sent to the
++.Em pflog0
++interface.
++This interface is monitored by the
++.Xr pflogd 8
++logging daemon which dumps the logged packets to the file
++.Em /var/log/pflog
++in
++.Xr pcap 3
++binary format.
++.Ss quick
++If a packet matches a rule which has the 
++.Sq quick
++option set, this rule
++is considered the last matching rule, and evaluation of subsequent rules
++is skipped.
++.Ss on <interface>
++The rule applies only to packets coming in on or going out through this
++particular interface.
++.Ss <af>
++The rule applies only to packets of this address family.
++Supported values are inet and inet6.
++.Ss proto <protocol>
++The rule applies only to packets of this protocol.
++Common protocols used here are tcp, udp, icmp and ipv6-icmp.
++.Ss from <source> port <source> to <dest> port <dest>
++The rule applies only to packets with the specified source and destination
++addresses/ports.
++.Pp
++Addresses can be specified in CIDR notation (matching netblocks), as
++symbolic host names or interface names, or as any of the following keywords:
++.Bl -tag -width no-route -compact
++.It Em any
++means any address;
++.It Em no-route
++means any address which is not currently routable.
++.El
++.Pp
++Host name resolution and interface to address translation are done at
++rule set load-time. 
++When the address of an interface (or host name) changes (by DHCP or PPP,
++for instance), the rule set must be reloaded for the change to be reflected
++in the kernel.
++Interface names surrounded by parentheses cause an automatic update of
++the rule whenever the referenced interface changes its address.
++Reloading the rule set is not required in this case.
++.Pp
++Ports can be specified using these operators
++.Bd -literal
++    = (equal), != (unequal), < (lesser), <= (lesser or equal), > (greater),
++    >= (greater or equal), >< (range) and <> (except range).
++.Ed
++.Pp
++>< and <> are binary operators (they take two arguments), and the range
++doesn't include the limits, for instance:
++.Bl -tag -width Fl
++.It Em port 2000 >< 2004
++means 
++.Sq all ports > 2000 and < 2004 ,
++hence ports 2001, 2002 and 2003.
++.It Em port 2000 <> 2004
++means 
++.Sq all ports < 2000 or > 2004 ,
++hence ports 1-1999 and 2005-65535.
++.El
++.Pp
++The host and port specifications are optional, as the following examples
++show:
++.Bd -literal
++    pass in all
++    pass in from any to any
++    pass in proto tcp from any port <= 1024 to any
++    pass in proto tcp from any to any port 25
++    pass in proto tcp from 10.0.0.0/8 port > 1024 to ! 10.1.2.3 port != 22
++.Ed
++.Ss user <user> group <group>
++The rule only applies to packets of sockets owned by the specified user
++and group.
++For outgoing connections initiated from the firewall, this is the user
++that opened the connection.
++For incoming connections to the firewall itself, this is the user that
++listens on the destination port.
++For forwarded connections, where the firewall isn't a connection endpoint,
++the user and group are
++.Em unknown .
++.Pp
++All packets, both outgoing and incoming, of one connection are associated
++with the same user and group.
++Only TCP and UDP packets can be associated with users, for other protocols
++these parameters are ignored.
++.Pp
++User and group refer to the effective (as opposed to the real) IDs, in
++case the socket is created by a setuid/setgid process.
++Note that user and group IDs are stored when a socket is created;
++when a process creates a listening socket as root (for instance, because
++it wants to bind to a privileged port) and subsequently sets another
++user ID (to drop privileges), the socket's uid remains root.
++.Pp
++User and group IDs can be specified as either numbers or names, the
++syntax is similar to the one for ports.
++The value
++.Em unknown
++matches packets of forwarded connections.
++.Em unknown
++can only be used with operators = and !=, other constructs
++like 'user >= unknown' are invalid.
++Forwarded packets with unknown user and group ID match only rules
++that explicitely compare against
++.Em unknown
++with operator = or !=, for instance 'user >= 0' does not match
++forwarded packets.
++The following example allows only selected users to open outgoing
++connections:
++.Bd -literal
++    block out proto { tcp, udp } all
++    pass  out proto { tcp, udp } all user { < 1000, dhartmei } keep state
++.Ed
++.Ss flags <a> | <a>/<b> | /<b>
++The rule only applies to TCP packets that have the flags <a> set
++out of set <b>.
++Flags not specified in <b> are ignored.
++If <b> is not set, all flags are specified.
++The flags are: (F)IN, (S)YN, (R)ST, (P)USH, (A)CK, (U)RG, (E)CE, and C(W)R.
++.Bl -tag -width Fl
++.It Em flags S/S
++Flag SYN is set.
++The other flags are ignored.
++.It Em flags S/SA
++Of SYN and ACK, exactly SYN is set.
++SYN, SYN+PSH, SYN+RST match, but SYN+ACK, ACK and ACK+RST don't.
++This is more restrictive than the previous example.
++.It Em flags S
++If the second set is not specified, it defaults to FSRPAUEW.
++Hence, only packets with SYN set and all other flags unset match this 
++rule.
++This is more restrictive than the previous example.
++.It Em flags /SFRA
++If the first set is not specified, it defaults to none.
++All of SYN, FIN, RST and ACK must be unset.
++.El
++.Ss icmp-type <type> code <code> and ipv6-icmp-type <type> code <code>
++The rule only applies to ICMP or ICMPv6 packets with the specified type
++and code.
++This parameter is only valid for rules that cover protocols icmp or
++ipv6-icmp.
++The protocol and the icmp type indicator (icmp-type or ipv6-icmp-type)
++must match.
++.Ss allow-opts
++By default, packets which contain IP options are blocked.
++When
++.Em allow-opts
++is specified for a
++.Em pass
++rule, packets that pass the filter based on that rule (last matching)
++do so even if they contain IP options.
++For packets that match state, the rule that initially created the
++state is used.
++The implicit
++.Em pass
++rule that is used when a packet doesn't match any rules does not
++allow IP options.
++.Ss label <string>
++Adds a label (name) to the rule, which can be used to identify the rule.
++For instance,
++.Em pfctl -s labels
++shows per-rule statistics for rules that have labels.
++.Pp
++The following macros can be used in labels:
++.Pp
++.Bl -tag -width $srcaddr -compact -offset indent
++.It Em $srcaddr
++the source IP address.
++.It Em $dstaddr
++the destination IP address.
++.It Em $srcport
++the source port specification.
++.It Em $dstport
++the destination port specification.
++.It Em $proto
++the protocol name.
++.It Em $nr
++the rule number.
++.El
++.Pp
++Example:
++.Bd -literal
++    ips = "{ 1.2.3.4, 1.2.3.5 }"
++    pass in proto tcp from any to $ips port >1023 label "$dstaddr:$dstport"
++.Ed
++.Pp
++expands to
++.Bd -literal
++    pass in proto tcp from any to 1.2.3.4 port >1023 label "1.2.3.4:>1023"
++    pass in proto tcp from any to 1.2.3.5 port >1023 label "1.2.3.5:>1023"
++.Ed
++.Pp
++Note that evaluation takes place at parse time.
++.Sh NO
++The
++.Sq no
++option is to a NAT rule what the
++.Sq quick
++option is to a filter rule.
++This option causes matching packets to remain untranslated.
++.Sh ROUTING
++If a packet matches a rule with a route option set, the packet filter will
++route the packet according to the type of route option.
++.Ss fastroute
++The
++.Em fastroute
++option does a normal route lookup to find the next hop for the packet.
++.Ss route-to
++The
++.Em route-to
++option routes the packet to the specified interface with an optional address
++for the next hop.
++.Ss dup-to
++The
++.Em dup-to
++option creates a duplicate of the packet and routes it like
++.Em route-to.
++The original packet gets routed as it normally would.
++.Sh MACROS
++.Em pfctl
++supports macro definition and expansion like:
++.Bd -literal
++    ext_if = "kue0"
++    pass out on $ext_if           from any to any         keep state
++    pass in  on $ext_if proto tcp from any to any port 25 keep state
++.Ed
++.Pp
++Macro names must start with a letter and may contain letters, digits
++and underscores.
++Macros are not expanded recursively.
++.Sh STATEFUL INSPECTION
++.Em pf
++is a stateful packet filter, which means it can track the state of
++a connection.
++Instead of passing all traffic to port 25, for instance, one can pass
++only the initial packet and keep state.
++.Pp
++If a packet matches a pass ... keep state rule, the filter creates
++a state for this connection and automatically lets pass all following
++packets of that connection.
++.Pp
++Before any rules are evaluated, the filter checks whether the packet
++matches any state.
++If it does, the packet is passed without evaluation of any rules.
++.Pp
++States are removed after the connection is closed or has timed out.
++.Pp
++This has several advantages.
++Comparing a packet to a state involves checking its sequence numbers.
++If the sequence numbers are outside the narrow windows of expected
++values, the packet is dropped.
++This prevents spoofing attacks, where the attacker sends packets with
++a fake source address/port but doesn't know the connection's sequence
++numbers.
++.Pp
++Also, looking up states is usually faster than evaluating rules.
++If one has 50 rules, all of them are evaluated sequentially in O(n).
++Even with 50000 states, only 16 comparisons are needed to match a
++state, since states are stored in a binary search tree that allows
++searches in O(log2 n).
++.Pp
++For instance:
++.Bd -literal
++    block out all
++    block in  all
++    pass out proto tcp from any to any         flags S/SA keep state
++    pass in  proto tcp from any to any port 25 flags S/SA keep state
++.Ed
++.Pp
++This rule set blocks everything by default.
++Only outgoing connections and incoming connection to port 25 are allowed.
++The inital packet of each connection has the SYN flag set, will be passed
++and creates state.
++All further packets of these connections are passed if they match a state.
++.Pp
++Specifying flags S/SA restricts state creation to the initial SYN
++packet of the TCP handshake.
++One can also be less restrictive, and allow state creation from
++intermediate 
++.Pq non-SYN
++packets.
++This will cause
++.Em pf
++to synchronize to existing connections, for instance
++if one flushes the state table.
++.Pp
++For UDP, which is stateless by nature, keep state will create state
++as well.
++UDP packets are matched to states using only host addresses and ports.
++.Pp
++ICMP messages fall in two categories: ICMP error messages, which always
++refer to a TCP or UDP packet, are matched against the refered to connection.
++If one keeps state on a TCP connection, and an ICMP source quench message
++referring to this TCP connection arrives, it will be matched to the right
++state and get passed.
++.Pp
++For ICMP queries, keep state creates an ICMP state, and
++.Em pf
++knows how to match ICMP replies to states.
++For example
++.Bd -literal
++    pass out inet proto icmp all icmp-type echoreq keep state
++.Ed
++.Pp
++lets echo requests 
++.Pq pings
++out, creates state, and matches incoming echo replies correctly to states.
++.Pp
++Note: nat/rdr rules implicitly create state for connections.
++.Sh STATE MODULATION
++Much of the security derived from TCP is attributable to how well the
++initial sequence numbers (ISNs) are chosen.
++Some popular stack implementations choose
++.Cm very
++poor ISNs and thus are normally susceptible to ISN prediction exploits.
++By applying a "modulate state" rule to a TCP connection, 
++.Em pf
++will create a high quality random sequence number for each connection
++endpoint.
++.Pp
++The "modulate state" directive implicitly keeps state on the rule and is
++only applicable to TCP connections.
++.Pp
++For instance:
++.Bd -literal
++    block out all
++    block in  all
++    pass out proto tcp from any to any                    modulate state
++    pass in  proto tcp from any to any port 25 flags S/SA modulate state
++.Ed
++.Pp
++Caveat:  If
++.Em pf
++picks up an already established connection
++.Po
++the firewall was rebooted, the state table was flushed, ...
++.Pc
++it will not be able to safely modulate the state of that connection.
++.Em pf
++will fall back and operate as if "keep state" was specified instead.
++Without this fallback, modulation would cause each host to
++think that the other end had somehow lost sync.
++.Pp
++Caveat:  If the state table is flushed or the firewall is rebooted,
++currently modulated connections can not be continued or picked
++up again by the firewall.
++State modulation causes the firewall to phase
++shift the sequencing of each side of a connection
++.Po
++add a random number to each side.
++.Pc
++Both sides of the connection will notice, that its peer has suddenly
++shifted its sequence by a random amount. 
++Neither side
++will be able to recover and the connection will stall and eventually close.
++.Sh STATE OPTIONS
++Both "keep state" and "modulate state" support the following options:
++.Bl -tag -width timeout_seconds -compact
++.It Em max number
++Limits the number of concurrent states the rule may create.
++When this limit is reached, further packets matching the rule that would
++create state are dropped, until existing states time out.
++.It Em timeout seconds
++Changes the timeout values used for states created by this rule.
++For a list of all valid timeout names, see
++.Xr pfctl 8 .
++.El
++.Pp
++Multiple options can be specified, separated by commas:
++.Bd -literal
++    pass in proto tcp from any to any port www flags S/SA \\
++      keep state (max 100, tcp.established 60, tcp.closing 5)
++.Ed
++.Sh NORMALIZATION
++Packet normalization is invoked via the
++.Pa scrub
++directive.
++Normalization is used to sanitize packet content in such
++a way that there are no ambiguities in packet interpretation on
++the receiving side.
++.Pp
++The normalizer does IP fragment reassembly to prevent attacks
++that confuse intrusion detection systems by sending overlapping
++IP fragments.
++.Ss no-df
++Clears the
++.Pa dont-fragment
++bit from a matching ip packet.
++.Ss min-ttl <number>
++Enforces a minimum ttl for matching ip packets.
++.Ss max-mss <number>
++Enforces a maximum mss for matching tcp packets.
++.Pp
++Normalization occurs before filtering, scrub rules and pass/block
++rules are evaluated independently.
++Hence, their relative position in the rule set is not relevant,
++and packets can't be blocked before normalization.
++.Sh BLOCKING SPOOFED TRAFFIC
++"Spoofing" is the faking of IP addresses, typically for malicious
++purposes.
++The 
++.Pa antispoof
++directive expands to a set of filter rules which will block all 
++traffic with a source IP from the network(s) directly connected 
++to the specified interface(s) from entering the system through 
++any other interface.
++.Pp
++For example, the line
++.Bd -literal
++    antispoof for lo0
++.Ed
++.Pp
++expands to
++.Bd -literal
++    block in on ! lo0 inet from 127.0.0.1/8 to any 
++    block in on ! lo0 inet6 from ::1 to any 
++.Ed
++.Pp
++For non-loopback interfaces, there are additional rules to block incoming 
++packets with a source IP address identical to the interface's IP(s).
++For example, assuming the interface wi0 had an IP address of 10.0.0.1 and a
++netmask of 255.255.255.0,
++the line
++.Bd -literal
++    antispoof for wi0 inet
++.Ed
++.Pp
++expands to
++.Bd -literal
++    block in on ! wi0 inet from 10.0.0.1/24 to any 
++    block in inet from 10.0.0.1 to any 
++.Ed
++.Sh FRAGMENT HANDLING
++The size of IP datagrams (packets) can be significantly larger than the
++the maximum transmission unit (MTU) of the network.  In cases when it is
++necessary or more effecient to send such large packets, the large packet
++will be fragmented into many smaller packets that will each fit onto the
++wire.  Unfortunately for a firewalling device, only the first logical
++fragment will contain the necessary header information for the
++subprotocol that allows
++.Em pf
++to filter on things such as TCP ports or to perform NAT.
++.Pp
++There are four options for handling fragments in the packet filter:
++.Pp
++Using scrub rules, fragments can be reassembled by normalization.
++In this case, fragments are buffered until they form a complete
++packet, and only the completed packet is passed on to the filter.
++The advantage is that filter rules have to deal only with complete
++packets, and can ignore fragments.  The drawback of caching fragments
++is the additional memory cost.  But the full reassembly method is the
++only method that currently works with NAT.
++Full reassembly is triggered by the
++.Pa fragment reassemble
++modifier on a
++.Pa scrub
++rule.  This is the default behavior of a
++.Pa scrub
++rule if no fragmentation modifier is supplied.
++.Pp
++Scrub also has two additional methods to track fragments without the
++high memory cost of full reassembly.  The first is enabled via the
++.Pa fragment crop
++modifier.
++.Em pf
++will track the fragments and cache a small range descriptor.  Duplicate
++fragments are dropped and overlaps are cropped.  Thus data will only
++occur once on the wire with ambiguities resolving to the first occurance.
++Unlike the
++.Pa fragment reassemble
++modifier, fragments are not buffered, they are passed as soon as they
++are received.  This reassembly mechanism does not yet work with NAT.
++.Pp
++Scrub's other method is the
++.Pa fragment drop-ovl
++modifier.  It is almost identical to the
++.Pa fragment crop
++modifier except that all overlapping or duplicate fragments will be
++dropped and will cause the following corresponding fragments to be
++dropped as well.
++.Pp
++The alternative is to filter individual fragments with filter rules.
++If no scrub rule applies to a fragment, it is passed to the filter.
++Filter rules with matching IP header parameters decide whether the
++fragment is passed or blocked, in the same way as complete packets
++are filtered.
++Without reassembly, fragments can only be filtered based on IP header
++fields (source/destination address, protocol), since subprotocol header
++fields are not available (TCP/UDP port numbers, ICMP code/type).
++The
++.Pa fragment
++option can be used to restrict filter rules to apply only to
++fragments but not complete packets.
++Filter rules without the
++.Pa fragment
++option still apply to fragments, if they only specify IP header fields.
++For instance, the rule 'pass in proto tcp from any to any port 80' never
++applies to a fragment, even if the fragment is part of a TCP packet with
++destination port 80, because without reassembly, this information is not
++available for each fragment.
++This also means that fragments can't create new or match existing
++state table entries, which makes stateful filtering and address
++translations (NAT, redirection) for fragments impossible.
++.Pp
++It's also possible to reassemble only certain fragments by specifying
++source or destination addresses or protocols as parameters in scrub
++rules.
++.Pp
++In most cases, the benefits of reassembly outweigh the additional
++memory cost, and it's recommended to use scrub rules to reassemble
++all fragments via the
++.Pa fragment reassemble
++modifier.
++.Pp
++The memory allocated for fragment caching can be limited using
++.Xr pfctl 8 .
++Once this limit is reached, fragments that would have to be cached
++are dropped until other entries time out. The timeout value can
++also be adjusted.
++.Pp
++Currently, only IPv4 fragments are supported and IPv6 fragments
++are blocked unconditionally.
++.Sh FILTER EXAMPLES
++.Bd -literal
++# The external interface is kue0
++# (157.161.48.183, the only routable address)
++# and the private network is 10.0.0.0/8, for which we are doing NAT.
++
++# use a macro for the interface name, so it can be changed easily
++ext_if = "kue0"
++
++# normalize all incoming traffic
++scrub in on $ext_if all fragment reassemble
++
++# block and log everything by default
++block             out log on $ext_if           all
++block             in  log on $ext_if           all
++block return-rst  out log on $ext_if proto tcp all
++block return-rst  in  log on $ext_if proto tcp all
++block return-icmp out log on $ext_if proto udp all
++block return-icmp in  log on $ext_if proto udp all
++
++# block anything coming from source we have no back routes for
++block in from no-route to any
++
++# block and log outgoing packets that don't have our address as source,
++# they are either spoofed or something is misconfigured (NAT disabled,
++# for instance), we want to be nice and don't send out garbage.
++block out log quick on $ext_if from ! 157.161.48.183 to any
++
++# silently drop broadcasts (cable modem noise)
++block in quick on $ext_if from any to 255.255.255.255
++
++# block and log incoming packets from reserved address space and invalid
++# addresses, they are either spoofed or misconfigured, we can't reply to
++# them anyway (hence, no return-rst).
++block in log quick on $ext_if from { 10.0.0.0/8, 172.16.0.0/12, \\
++	192.168.0.0/16, 255.255.255.255/32 } to any
++
++# ICMP
++
++# pass out/in certain ICMP queries and keep state (ping)
++# state matching is done on host addresses and ICMP id (not type/code),
++# so replies (like 0/0 for 8/0) will match queries
++# ICMP error messages (which always refer to a TCP/UDP packet) are
++# handled by the TCP/UDP states
++pass out on $ext_if inet proto icmp all icmp-type 8 code 0 keep state
++pass in  on $ext_if inet proto icmp all icmp-type 8 code 0 keep state
++
++# UDP
++
++# pass out all UDP connections and keep state
++pass out on $ext_if proto udp all keep state
++
++# pass in certain UDP connections and keep state (DNS)
++pass in on $ext_if proto udp from any to any port domain keep state
++
++# TCP
++
++# pass out all TCP connections and modulate state
++pass out on $ext_if proto tcp all modulate state
++
++# pass in certain TCP connections and keep state (SSH, SMTP, DNS, IDENT)
++pass in on $ext_if proto tcp from any to any port { ssh, smtp, domain, \\
++	auth } flags S/SA keep state
++
++# pass in data mode connections for ftp-proxy running on this host.
++# (see ftp-proxy(8) for details)
++pass in on $ext_if proto tcp from any to 157.161.48.183 port >= 49152 \\
++	flags S/SA keep state
++
++.Ed
++.Sh NAT EXAMPLES
++This example maps incoming requests on port 80 to port 8080, on
++which Apache Tomcat is running (say Tomcat is not run as root,
++therefore lacks permission to bind to port 80).
++.Bd -literal
++# map tomcat on 8080 to appear to be on 80
++rdr on ne3 proto tcp from any to any port 80 -> 127.0.0.1 port 8080
++.Ed
++.Pp
++In the example below, vlan12 is configured for the 192.168.168.1;
++the machine translates all packets coming from 192.168.168.0/24 to 204.92.77.111
++when they are going out any interface except vlan12.
++This has the net effect of making traffic from the 192.168.168.0/24
++network appear as though it is the Internet routeable address
++204.92.77.111 to nodes behind any interface on the router except
++for the nodes on vlan12.
++(Thus, 192.168.168.1 can talk to the 192.168.168.0/24 nodes.)
++.Bd -literal
++nat on ! vlan12 from 192.168.168.0/24 to any -> 204.92.77.111
++.Ed
++.Pp
++In the example below, fxp1 is the outside interface; the machine sits between a
++fake internal 144.19.74.* network, and a routable external IP of 204.92.77.100.
++The "no nat" rule excludes protocol AH from being translated.
++.Bd -literal
++#NO NAT
++no nat on fxp1 proto ah from 144.19.74.0/24 to any
++nat on fxp1 from 144.19.74.0/24 to any -> 204.92.77.100
++.Ed
++.Pp
++In the example below, fxp0 is the internal interface.
++Packets bound
++for one specific server, as well as those generated by the sysadmins
++are not proxied, all other connections are.
++.Bd -literal
++# NO RDR
++no rdr on fxp0 from any        to $server port 80
++no rdr on fxp0 from $sysadmins to any     port 80
++   rdr on fxp0 from any        to any     port 80 -> 127.0.0.1 port 80
++.Ed
++.Pp
++This longer example uses both a NAT and a redirection.
++Interface kue0 is the outside interface, and its external address is
++157.161.48.183.
++Interface fxp0 is the inside interface, and we are running
++.Xr ftp-proxy 8
++listening for outbound ftp sessions captured to port 8081.
++.Bd -literal
++# NAT
++# translate outgoing packets' source addresses (any protocol)
++# in this case, any address but the gateway's external address is mapped
++nat on kue0 inet from ! (kue0) to any -> (kue0)
++
++# NAT PROXYING
++# map outgoing packets' source port to an assigned proxy port instead of
++# an arbitrary port
++# in this case, proxy outgoing isakmp with port 500 on the gateway
++nat on kue0 inet proto udp from any port = isakmp to any -> (kue0) \\
++	port 500
++
++# BINAT
++# translate outgoing packets' source address (any protocol)
++# translate incoming packets' destination address to an internal machine
++# (bidirectional)
++binat on kue0 from 10.1.2.150 to any -> (kue0)
++
++# RDR
++# translate incoming packets' destination addresses
++# as an example, redirect a TCP and UDP port to an internal machine
++rdr on kue0 inet proto tcp from any to (kue0) port 8080 -> 10.1.2.151 \\
++	port 22
++rdr on kue0 inet proto udp from any to (kue0) port 8080 -> 10.1.2.151 \\
++	port 53
++
++# RDR
++# translate outgoing ftp control connections to send them to localhost
++# for proxying with ftp-proxy(8) running on port 8081
++rdr on fxp0 proto tcp from any to any port 21 -> 127.0.0.1 port 8081
++.Ed
++.Sh GRAMMAR
++Syntax for
++.Em pf.conf
++in BNF:
++.Bd -literal
++line           = ( option | pf_rule | nat_rule | binat_rule | rdr_rule |
++		   antispoof_rule )
++
++option         = set ( [ "timeout" ( timeout | "{" timeout-list "}" ) ] |
++                       [ "optimization" [ "default" | "normal" | 
++				"high-latency" | "satellite" | 
++				"aggressive" | "conservative" ] ]
++                       [ "limit" ( limit | "{" limit-list "}" ) ] |
++                       [ "loginterface" ( interface-name | "none" ) ] ) .
++
++pf_rule        = action ( "in" | "out" )
++                 [ "log" | "log-all" ] [ "quick" ]
++                 [ "on" ifspec ] [ route ] [ af ] [ protospec ]
++                 hosts
++                 [ user ] [ group ] [ flags ]
++                 [ icmp-type | ipv6-icmp-type ]
++                 [ ( "keep" | "modulate" ) "state" [ "(" state-opts ")" ] ]
++                 [ "fragment" ] [ "no-df" ] [ "min-ttl" number ]
++                 [ "max-mss" number ] [ fragmentation ] [ "allow-opts" ]
++                 [ "label" string ] .
++
++nat_rule       = [ "no" ] "nat" "on" ifspec  [ af ] [ protospec ] hosts
++                 [ "->" address [ portspec ] ] .
++
++binat_rule     = [ "no" ] "binat" "on" interface-name [ af ]
++		 [ "proto" ( proto-name | proto-number ) ]
++		 "from" address "to" ipspec [ "->" address ] .
++
++rdr_rule       = [ "no" ] "rdr" "on" ifspec [ af ] [ protospec ]
++		 "from" ipspec "to" ipspec [ portspec ]
++		 [ "->" address [ portspec ] ] .
++
++antispoof_rule = "antispoof" [ "log" ] [ "quick" ]
++		 "for" ( interface-name | "{" interface-list "}" )
++		 [ af ] .
++
++action         = "pass" | "block" [ return ] | "scrub" .
++return         = "return-rst" [ "(" "ttl" number ")" ] |
++                 "return-icmp"
++                     [ "(" ( icmp-code-name | icmp-code-number ) ")" ] |
++                 "return-icmp6"
++                     [ "(" ( icmp-code-name | icmp-code-number ) ")" ] .
++
++ifspec         = ( [ "!" ] interface-name ) | "{" interface-list "}"
++interface-list = [ "!" ] interface-name [ [ "," ] interface-list ] .
++route          = "fastroute" |
++                 "route-to" "(" interface-name address ")" |
++                 "route-to" interface-name |
++                 "dup-to" "(" interface-name address ")" |
++                 "dup-to" interface-name
++af	       = "inet" | "inet6" .
++
++protospec      = "proto" ( proto-name | proto-number | "{" proto-list "}" ) .
++proto-list     = ( proto-name | proto-number ) [ [ "," ] proto-list ] .
++
++hosts          = "all" |
++                 "from" ( "any" | "no-route" | "self" | host |
++                 "{" host-list "}" ) [ port ]
++                 "to"   ( "any" | "no-route" | "self" | host |
++                 "{" host-list "}" ) [ port ] .
++
++ipspec         = "any" | host | "{" host-list "}" .
++host           = [ "!" ] address [ "/" mask-bits ] .
++address        = ( interface-name | "(" interface-name ")" | host-name |
++                   ipv4-dotted-quad | ipv6-coloned-hex ) .
++host-list      = host [ [ "," ] host-list ] .
++
++port           = "port" ( unary-op | binary-op | "{" op-list "}" ) .
++portspec       = "port" ( number | name ) [ ":" ( "*" | number | name ) ] .
++user           = "user" ( unary-op | binary-op | "{" op-list "}" ) .
++group          = "group" ( unary-op | binary-op | "{" op-list "}" ) .
++
++unary-op       = [ "=" | "!=" | "<" | "<=" | ">" | ">=" ]
++                 ( name | number ) .
++binary-op      = number ( "<>" | "><" ) number .
++op-list        = ( unary-op | binary-op ) [ [ "," ] op-list ] .
++
++flags          = "flags" ( flag-set | flag-set "/" flag-set |
++                           "/" flag-set ) .
++flag-set       = [ "F" ] [ "S" ] [ "R" ] [ "P" ] [ "A" ] [ "U" ] [ "E" ]
++                 [ "W" ] .
++
++icmp-type      = "icmp-type" ( icmp-type-code | "{" icmp-list "}" ) . 
++ipv6-icmp-type = "ipv6-icmp-type" ( icmp-type-code | "{" icmp-list "}" ) . 
++icmp-type-code = ( icmp-type-name | icmp-type-number )
++                 [ "code" ( icmp-code-name | icmp-code-number ) ] .
++icmp-list      = icmp-type-code [ [ "," ] icmp-list ] . 
++
++state-opts     = state-opt [ [ "," ] state-opts ] .
++state-opt      = ( "max" seconds ) | ( timeout seconds ) .
++
++fragmentation  = [ "fragment reassemble" | "fragment crop" |
++                   "fragment drop-ovl" ] .
++
++timeout-list   = timeout [ [ "," ] timeout-list ] .
++timeout        = ( "tcp.first" | "tcp.opening" | "tcp.established" |
++                 "tcp.closing" | "tcp.finwait" | "tcp.closed" |
++                 "udp.first" | "udp.single" | "udp.multiple" |
++                 "icmp.first" | "icmp.error" |
++                 "other.first" | "other.multiple" ) seconds .
++seconds        = number .
++
++limit-list     = limit [ [ "," ] limit-list ] . 
++limit          = ( "states" | "frags" ) number .
++.Ed
++.Sh FILES
++.Bl -tag -width "/etc/pf.conf" -compact
++.It Pa /etc/hosts
++.It Pa /etc/pf.conf
++.It Pa /etc/protocols
++.It Pa /etc/services
++.El
++.Sh SEE ALSO
++.Xr pf 4 ,
++.Xr hosts 5 ,
++.Xr protocols 5 ,
++.Xr services 5 ,
++.Xr ftp-proxy 8 ,
++.Xr pfctl 8 ,
++.Xr pflogd 8
++.Sh HISTORY
++The
++.Nm
++file format appeared in
++.Ox 3.0 .
+diff -Nur /usr/src/share.orig/man/man8/Makefile /usr/src/share/man/man8/Makefile
+--- /usr/src/share.orig/man/man8/Makefile	Fri Jul 11 08:12:59 2025
++++ /usr/src/share/man/man8/Makefile	Fri Jul 11 17:57:12 2025
+@@ -4,10 +4,13 @@
+ .PATH: ${.CURDIR}/../../../release/sysinstall
+ 
+ MAN=	adding_user.8 \
++	authpf.8 \
+ 	crash.8 \
+ 	diskless.8 \
+ 	intro.8 \
+ 	picobsd.8 \
++	pfctl.8 \
++	pflogd.8 \
+ 	rc.8 \
+ 	rc.sendmail.8 \
+ 	sticky.8 \
+diff -Nur /usr/src/share.orig/man/man8/authpf.8 /usr/src/share/man/man8/authpf.8
+--- /usr/src/share.orig/man/man8/authpf.8	Thu Jan  1 08:00:00 1970
++++ /usr/src/share/man/man8/authpf.8	Fri Jul 11 17:54:37 2025
+@@ -0,0 +1,449 @@
++.\" $OpenBSD: authpf.8,v 1.17 2002/07/27 07:27:04 nordin Exp $
++.\"
++.\" Copyright (c) 2002 Bob Beck (beck@openbsd.org>.  All rights reserved.
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\" 1. Redistributions of source code must retain the above copyright
++.\"    notice, this list of conditions and the following disclaimer.
++.\" 2. Redistributions in binary form must reproduce the above copyright
++.\"    notice, this list of conditions and the following disclaimer in the
++.\"    documentation and/or other materials provided with the distribution.
++.\" 3. The name of the author may not be used to endorse or promote products
++.\"    derived from this software without specific prior written permission.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++.\" IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++.\" OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++.\" IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++.\" NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++.\" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++.\" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++.\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++.\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++.\"
++.Dd Jan 10, 2002
++.Dt AUTHPF 8
++.Os
++.Sh NAME
++.Nm authpf
++.Nd authenticating gateway user shell
++.Sh SYNOPSIS
++.Nm authpf
++.Sh DESCRIPTION
++.Nm
++is used as a user shell for authenticating gateways.
++It is used to change
++.Xr pf 4
++rules when a user authenticates and starts a session with
++.Xr sshd 8
++and to then undo the changes when the user's session exits.
++It is designed for changing filter and translation rules for an individual
++source IP address as long as a user maintains an active
++.Xr ssh 1
++session.
++Typical use would be for a gateway that authenticates users before
++allowing them Internet use, or a gateway that allows different users into
++different places.
++.Nm
++logs the successful start and end of a session to
++.Xr syslog 8 .
++This, combined with properly set up filter rules and secure switches
++can be used to ensure users are held accountable for their network traffic.
++.Pp
++.Nm
++can add filter and translation rules using the syntax described in
++.Xr pf.conf 5 .
++.Nm
++requires that the
++.Xr pf 4
++system be enabled before use.
++.Pp
++.Nm
++is meant to be used with users who can connect via
++.Xr ssh 1
++only.
++On startup,
++.Nm
++retrieves the client's connecting IP address via the
++.Ev SSH_CLIENT
++environment variable, and after performing additional access checks,
++a template file is read to determine what filter and translation (if
++any) rules to add.
++On session exit the same rules that were added at startup are removed.
++By default, filter rules are added at the end of the active
++.Xr pf 4
++filter list, and translation rules are added at the start of the active
++.Xr pf 4
++nat and rdr lists.
++.Sh FILTER AND TRANSLATION RULES
++Filter and translation rules for
++.Nm
++use the same format described in
++.Xr pf.conf 5 .
++The only difference is that these rules may (and probably should) use
++the macro
++.Em user_ip
++which is defined to the connecting ip address whenever
++.Nm
++is run.
++.Pp
++Filter and nat rules will be searched for first in
++.Pa /etc/authpf/users/$USER/
++and then in
++.Pa /etc/authpf/ .
++Per-user rules from the
++.Pa /etc/authpf/users/$USER/
++directory are intended to be used when non-default rules
++are needed on an individual user basis.
++It is important to ensure that a user can not write or change
++these configuration files in this case.
++.Pp
++Filter and translation rules are loaded from the file
++.Pa /etc/authpf/users/$USER/authpf.rules .
++If this file does not exist the file
++.Pa /etc/authpf/authpf.rules
++is used.
++The
++.Pa authpf.rules
++file must exist in one of the above locations for
++.Nm
++to run.
++.Pp
++Translation rules are also loaded from this file.
++The use of translation rules in an
++.Pa authpf.rules
++file is optional.
++.Sh CONFIGURATION
++Options are controlled by the
++.Pa /etc/authpf/authpf.conf
++file.
++This file is required to be present and readable for
++.Nm
++to run.
++It may be empty if the default behavior does not need to be changed.
++The file consists of pairs of the form
++.Li name=value
++one per line.
++Currently, the allowed values are as follows:
++.Bl -tag -width Ds
++.It rule_action=[head|tail]
++controls where filter rules are added, the default behavior is "tail"
++meaning filter rules are added to the end of the active filter list.
++.It Dv nat_action=[head|tail]
++controls where nat rules are added, the default behavior is "head"
++meaning filter rules are added to the start of the active nat list.
++.It Dv rdr_action=[head|tail]
++controls where rdr rules are added, the default behavior is "head"
++meaning filter rules are added to the start of the active rdr list.
++.El
++.Sh USER MESSAGES
++On successful invocation,
++.Nm
++displays a message telling the user he or she has been authenticated.
++It will additionally display the contents of the file
++.Pa /etc/authpf/authpf.message
++if the file exists and is readable.
++.Pp
++There exist two methods for providing additional granularity to the control
++offered by
++.Nm
++- it is possible to set the gateway to explicitly allow users who have
++authenticated to
++.Xr ssh 1
++and deny access to only a few troublesome individuals.
++This is done by creating a file with the banned user's login name in
++.Pa /etc/authpf/banned .
++The contents of this file will be displayed to a banned user, thus providing
++a method for informing the user that they have been banned, and where they can
++go and how to get there if they want to have their service restored.
++This is the default behaviour.
++.Pp
++It is also possible to configure
++.Nm
++to only allow specific users access.
++This is done by listing their login names, one per line, in
++.Pa /etc/authpf/authpf.allow .
++If "*" is found on a line, then all usernames match.
++If
++.Nm
++is unable to verify the user's permission to use the gateway, it will
++print a brief message and die.
++It should be noted that a ban takes precedence over an allow.
++.Pp
++On failure, messages will be logged to
++.Xr syslog 8
++for the system administrator.
++The user does not see these, but will be told the system is unavailable due to
++technical difficulties.
++The contents of the file
++.Pa /etc/authpf/authpf.problem
++will also be displayed if the file exists and is readable.
++.Sh CONFIGURATION ISSUES
++.Nm
++maintains the changed filter rules as long as the user maintains an
++active session.
++It is important to remember however, that the existence
++of this session means the user is authenticated.
++Because of this, it is important to both configure
++.Xr sshd 8
++to ensure the security of the session, and to ensure that the network
++by which users connect to use.
++.Xr sshd 8
++should be configured to use the
++.Dv ClientAliveInterval
++and
++.Dv ClientAliveCountMax
++parameters to ensure than an ssh session is terminated quickly if
++it becomes unresponsive, or if arp or address spoofing is used to
++hijack the session.
++Note that TCP keepalives are not sufficient for
++this, since they are not secure.
++.Pp
++.Nm
++will remove state table entries that were created during a user's
++session.
++This ensures that there will be no unauthenticated traffic
++allowed to pass after the controlling
++.Xr ssh 1
++session has been closed.
++.Pp
++.Nm
++is designed for gateway machines which don't typically have regular
++(non-administrative) users using the machine.
++An administrator must remember that
++.Nm
++can be used to modify the filter rules through the environment in
++which it is run, and as such could be used to modify the filter rules
++(based on the contents of the configuration files) by regular
++users.
++In the case where a machine has regular users using it, as well
++as users with
++.Nm
++as their shell, the regular users should be prevented from running
++.Nm
++by using the
++.Pa /etc/authpf/authpf.allow
++or
++.Pa /etc/authpf/banned/
++facilities.
++.Pp
++.Nm
++modifies the packet filter and address translation rules, and because
++of this it needs to be configured carefully.
++.Nm
++will not run and will exit silently if the
++.Pa /etc/authpf/authpf.conf
++file does not exist.
++After considering the effect
++.Nm
++may have on the main packet filter rules, the system administrator may
++enable
++.Nm
++by creating an appropriate
++.Pa /etc/authpf/authpf.conf
++file.
++.Sh EXAMPLES
++\fBControl Files\fP - To illustrate the user-specific access control
++mechanisms, let us consider a typical user named bob.
++Normally, as long as bob can authenticate himself, the
++.Nm
++program will load the appropriate rules.
++Enter the
++.Pa /etc/authpf/banned/
++directory.
++If bob has somehow fallen from grace in the eyes of the
++powers-that-be, they can prohibit him from using the gateway by creating
++the file
++.Pa /etc/authpf/banned/bob
++containing a message about why he has been banned from using the network.
++Once bob has done suitable penance, his access may be restored by moving or
++removing the file
++.Pa /etc/authpf/banned/bob.
++.Pp
++Now consider a workgroup containing alice, bob, carol and dave.
++They have a
++wireless network which they would like to protect from unauthorized use. To
++accomplish this, they create the file
++.Pa /etc/authpf/authpf.allow
++which lists their login ids, one per line.
++At this point, even if eve could authenticate to
++.Xr sshd 8 ,
++she would not be allowed to use the gateway.
++Adding and removing users from
++the work group is a simple matter of maintaining a list of allowed userids.
++If bob once again manages to annoy the powers-that-be, they can ban him from
++using the gateway by creating the familiar
++.Pa /etc/authpf/banned/bob
++file.
++Though bob is listed in the allow file, he is prevented from using
++this gateway due to the existence of a ban file.
++.Pp
++\fBDistributed Authentication\fP - It is often desirable to interface with a
++distributed password system rather than forcing the sysadmins to keep a large
++number of local password files in sync.
++The
++.Xr login.conf 5
++mechanism in
++.Ox
++can be used to fork the right shell.
++To make that happen,
++.Xr login.conf 5
++should have entries that look something like this:
++.Bd -literal
++shell-default:shell=/bin/csh
++
++default:\\
++	...
++	:shell=/usr/sbin/authpf
++
++daemon:\\
++	...
++	:shell=/bin/csh:\\
++	:tc=default:
++
++staff:\\
++	...
++	:shell=/bin/csh:\\
++	:tc=default:
++.Ed
++.Pp
++Using a default password file, all users will get
++.Nm
++as their shell except for root who will get
++.Pa /bin/csh.
++.Pp
++\fBSSH Configuration\fP - As stated earlier,
++.Xr sshd 8
++must be properly configured to detect and defeat network attacks.
++To that end, the following options should be added to
++.Pa sshd_config :
++.Bd -literal
++ClientAliveInterval 15
++ClientAliveCountMax 3
++.Ed
++.Pp
++This ensures that unresponsive or spoofed session are terminated in under a
++minute, since a hijacker should not be able to spoof ssh keepalive messages.
++.Pp
++.Pp
++\fBBanners\fP - Once authenticated, the user is shown the contents of
++.Pa /etc/authpf/authpf.message.
++This message may be a screen-full of the appropriate use policy, the contents
++of
++.Pa /etc/motd
++or something as simple as the following:
++.Bd -literal
++    This means you will be held accountable by the powers that be
++    for traffic originating from your machine, so please play nice.
++.Ed
++.Pp
++To tell the user where to go when the system is broken,
++.Pa /etc/authpf/authpf.problem
++could contain something like this:
++.Bd -literal
++    Sorry, there appears to be some system problem. To report this
++    problem so we can fix it, please phone 1-900-314-1597 or send
++    an email to remove@bulkmailerz.net.
++.Ed
++.Pp
++\fBPacket Filter Rules\fP - In areas where this gateway is used to protect a
++wireless network (a hub with several hundred ports) the default rule set as
++well as the per-user rules should probably allow very few things beyond
++encrypted protocols like
++.Xr ssh 1 ,
++.Xr ssl 8 ,
++or
++.Xr ipsec 4 .
++On a securely switched network, with plug-in jacks for visitors who are
++given authentication accounts, you might want to allow out everything.
++In this context, a secure switch is one that tries to prevent address table
++overflow attacks.
++The examples below assume a switched wired net.
++.Pp
++Example
++.Pa /etc/pf.conf :
++.Bd -literal
++# by default we allow internal clients to talk to us using
++# ssh and use us as a dns server.
++internal_if="fxp1"
++gateway_addr="10.0.1.1"
++block in on $internal_if from any to any
++pass in quick on $internal_if proto tcp from any to $gateway_addr/32 \\
++ port = ssh
++pass in quick on $internal_if proto udp from any to $gateway_addr/32 \\
++ port = domain
++.Ed
++.Pp
++Example
++.Pa /etc/authpf/authpf.rules :
++.Bd -literal
++# no real restrictions here, basically turn the network jack off or on.
++
++external_if = "xl0"
++internal_if = "fxp0"
++
++pass in log quick on $internal_if proto tcp from $user_ip/32 to any \\
++ keep state
++pass in quick on $internal_if from $user_ip/32 to any
++.Ed
++.Pp
++Example
++.Pa /etc/authpf/authpf.nat :
++.Bd -literal
++# When the user authenticates, rdr ftp for proxying by ftp-proxy(8)
++internal_if="fxp1"
++rdr on $internal_if proto tcp from $user_ip/32 to any port 21 \\
++ -> 127.0.0.1 port 8081
++.Ed
++.Pp
++Another example
++.Pa /etc/authpf/authpf.rules
++for an insecure network (such as a public wireless network) where
++we might need to be a bit more restrictive.
++.Bd -literal
++internal_if="fxp1"
++ipsec_gw="10.2.3.4"
++# allow out ftp, ssh, www and https only, and allow user to negotiate
++# ipsec with the ipsec server.
++pass in log quick on $internal_if proto tcp from $user_ip/32 to any \\
++ port { 21, 22, 80, 443 } flags S/SA
++pass in quick on $internal_if proto tcp from $user_ip/32 to any \\
++ port { 21, 22, 80, 443 }
++pass in quick proto udp from $user_ip/32 to $ipsec_gw/32 port = isakmp \\
++ keep state
++pass in quick proto esp from $user_ip/32 to $ipsec_gw/32
++.Ed
++.Sh FILES
++.Bl -tag -width "/etc/authpf/authpf.conf" -compact
++.It Pa /etc/authpf/authpf.conf
++.It Pa /etc/authpf/authpf.allow
++.It Pa /etc/authpf/authpf.rules
++.It Pa /etc/authpf/authpf.nat
++.It Pa /etc/authpf/authpf.message
++.It Pa /etc/authpf/authpf.problem
++.El
++.Sh SEE ALSO
++.Xr pf 4 ,
++.Xr pf.conf 5 ,
++.Xr ftp-proxy 8
++.Sh BUGS
++.Nm
++does not support binat translation rules.
++.Pp
++Configuration issues are tricky.
++The authenticating
++.Xr ssh 1
++connection may be secured, but if the network is not secured the user may
++expose insecure protocols to attackers on the same network, or enable other
++attackers on network to pretend to be the user by spoofing their IP address.
++.Pp
++.Nm
++is not designed to prevent users from denying service to other users.
++.Sh HISTORY
++The
++.Nm
++program first appeared in
++.Ox 3.1 .
+diff -Nur /usr/src/share.orig/man/man8/pfctl.8 /usr/src/share/man/man8/pfctl.8
+--- /usr/src/share.orig/man/man8/pfctl.8	Thu Jan  1 08:00:00 1970
++++ /usr/src/share/man/man8/pfctl.8	Fri Jul 11 17:53:01 2025
+@@ -0,0 +1,204 @@
++.\" $OpenBSD: pfctl.8,v 1.52 2002/09/18 07:33:47 deraadt Exp $
++.\"
++.\" Copyright (c) 2001 Kjell Wooding.  All rights reserved.
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\" 1. Redistributions of source code must retain the above copyright
++.\"    notice, this list of conditions and the following disclaimer.
++.\" 2. Redistributions in binary form must reproduce the above copyright
++.\"    notice, this list of conditions and the following disclaimer in the
++.\"    documentation and/or other materials provided with the distribution.
++.\" 3. The name of the author may not be used to endorse or promote products
++.\"    derived from this software without specific prior written permission.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++.\" IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++.\" OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++.\" IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++.\" NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++.\" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++.\" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++.\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++.\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++.\"
++.Dd June 24, 2001
++.Dt PFCTL 8
++.Os
++.Sh NAME
++.Nm pfctl
++.Nd control the packet filter (PF) and network address translation (NAT) device
++.Sh SYNOPSIS
++.Nm pfctl
++.Op Fl deqhnNrRvzO
++.Op Fl F Ar modifier
++.Op Fl f Ar file
++.Op Fl k Ar host
++.Op Fl s Ar modifier
++.Op Fl x Ar level
++.Sh DESCRIPTION
++The
++.Nm
++utility communicates with the packet filter device using the
++ioctl interface described in
++.Xr pf 4 .
++It allows rule set and parameter configuration and retrieval of status
++information from the packet filter.
++.Pp
++Packet filtering restricts the types of packets that pass through
++network interfaces entering or leaving the host based on filter
++rules as described in
++.Xr pf.conf 5 .
++The packet filter can also replace addresses and ports of packets.
++Replacing source addresses and ports of outgoing packets is called
++NAT (Network Address Translation) and is used to connect an internal
++network (usually reserved address space) to an external one (the
++Internet) by making all connections to external hosts appear to
++come from the gateway.
++Replacing destination addresses and ports of incoming packets
++is used to redirect connections to different hosts and/or ports.
++A combination of both translations, bidirectional NAT, is also
++supported.
++Translation rules are described in
++.Xr pf.conf 5 .
++.Pp
++When the variable pf=YES is set in
++.Xr rc.conf 8 ,
++the rule file specified with the variable pf_rules
++is loaded automatically by the
++.Xr rc 8
++scripts and the packet filter is enabled.
++.Pp
++The packet filter does not itself forward packets between interfaces.
++Forwarding can be enabled using the
++.Xr sysctl 8
++variable
++.Li net.inet.ip.forwarding=1 ,
++permanently in
++.Xr sysctl.conf 5 .
++.Pp
++The
++.Nm
++utility provides several commands.
++The options are as follows:
++.Bl -tag -width Ds
++.It Fl d
++Disable the packet filter.
++.It Fl e
++Enable the packet filter.
++.It Fl f Ar file
++Load rule file. This file may contain scrub, nat, and filter
++rules, in that order.
++.It Fl F Ar modifier
++Flush one of the following.
++Modifier name may be abbreviated:
++.Bl -tag -width "F rules " -compact
++.It Fl F Ar nat
++Flush the NAT rules.
++.It Fl F Ar rules
++Flush the filter rules.
++.It Fl F Ar state
++Flush the state table (NAT and filter).
++.It Fl F Ar info
++Flush the filter information (statistics that are not bound to rules).
++.It Fl F Ar all
++Flush all of the above.
++.El
++.It Fl k Ar host
++Kill all of the state entries from the specified host.
++A second
++.Fl k Ar host
++option may be specified, which will kill all the state entries
++from the first host to the second host.
++.Bd -literal
++Example:
++      Kill all of the state entries from host
++    # pfctl -k host
++
++      Kill all of the state entries from host1 to host2
++    # pfctl -k host1 -k host2
++.Ed
++.It Fl h
++Help.
++.It Fl n
++Do not actually load rules, just parse them.
++.It Fl N
++Load only the NAT rules present in the rule file. Filter rules and options are
++ignored
++.It Fl q
++Only print errors and warnings.
++.It Fl r
++Perform reverse DNS lookups on states when displaying them.
++.It Fl R
++Load only the filter rules present in the rule file. NAT rules and options are
++ignored.
++.It Fl O
++Load only the options present in the rule file. Filter and NAT rules are
++ignored
++.It Fl s Ar modifier
++Show filter parameters.
++Modifier names may be abbreviated:
++.Bl -tag -width "s rules " -compact
++.It Fl s Ar nat
++Show the currently loaded NAT rules.
++.It Fl s Ar rules
++Show the currently loaded filter rules.
++When used together with -v, the per-rule statistics (number of evaluations,
++packets and bytes) are also shown.
++Note that the 'skip step' optimization done automatically by the kernel
++will skip evaluation of rules where possible.
++Packets passed statefully are counted in the rule that created the state
++(even though the rule isn't evaluated more than once for the entire
++connection).
++.It Fl s Ar state
++Show the contents of the state table.
++.It Fl s Ar info
++Show filter information (statistics and counters).
++.It Fl s Ar labels
++Show per-rule statistics (in terse format) of filter rules with labels,
++useful for accounting.
++.It Fl s Ar timeouts
++Show the current global timeouts.
++.It Fl s Ar memory
++Show the current pool memory hard limits.
++.It Fl s Ar all
++Show all of the above.
++.El
++.It Fl v
++Produce more verbose output.
++.It Fl x Ar level
++Set the debug level to one of the following.
++Level names may be abbreviated:
++.Bl -tag -width "x urgent " -compact
++.It Fl x Ar none
++Don't generate debug messages.
++.It Fl x Ar urgent
++Generate debug messages only for serious errors.
++.It Fl x Ar misc
++Generate debug messages for various errors.
++.El
++.It Fl z
++Clear per-rule statistics.
++.El
++.Sh FILES
++.Bl -tag -width "/etc/pf.conf" -compact
++.It Pa /etc/pf.conf
++Packet filter rules file.
++.El
++.Sh SEE ALSO
++.Xr pf 4 ,
++.Xr pf.conf 5 ,
++.Xr ftp-proxy 8 ,
++.Xr rc 8 ,
++.Xr rc.conf 8 ,
++.Xr sysctl 8 ,
++.Xr sysctl.conf 5
++.Sh HISTORY
++The
++.Nm
++program and the
++.Xr pf 4
++filter mechanism first appeared in
++.Ox 3.0 .
+diff -Nur /usr/src/share.orig/man/man8/pflogd.8 /usr/src/share/man/man8/pflogd.8
+--- /usr/src/share.orig/man/man8/pflogd.8	Thu Jan  1 08:00:00 1970
++++ /usr/src/share/man/man8/pflogd.8	Fri Jul 11 17:53:14 2025
+@@ -0,0 +1,174 @@
++.\"	$OpenBSD: pflogd.8,v 1.15 2002/04/23 23:09:51 frantzen Exp $
++.\"
++.\" Copyright (c) 2001 Can Erkin Acar.  All rights reserved.
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\" 1. Redistributions of source code must retain the above copyright
++.\"    notice, this list of conditions and the following disclaimer.
++.\" 2. Redistributions in binary form must reproduce the above copyright
++.\"    notice, this list of conditions and the following disclaimer in the
++.\"    documentation and/or other materials provided with the distribution.
++.\" 3. The name of the author may not be used to endorse or promote products
++.\"    derived from this software without specific prior written permission.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++.\" IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++.\" OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++.\" IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++.\" NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++.\" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++.\" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++.\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++.\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++.\"
++.Dd July 9, 2001
++.Dt PFLOGD 8
++.Os
++.Sh NAME
++.Nm pflogd
++.Nd packet filter logging daemon
++.Sh SYNOPSIS
++.Nm pflogd
++.Op Fl D
++.Op Fl d Ar delay
++.Op Fl f Ar filename
++.Op Fl s Ar snaplen
++.Op Ar expression
++.Sh DESCRIPTION
++.Nm
++is a background daemon which reads packets logged by
++.Xr pf 4
++to the packet logging interface
++.Pa pflog0
++and writes the packets to a logfile (normally
++.Pa /var/log/pflog )
++in
++.Xr tcpdump 8
++binary format.
++These logs can be reviewed later using the
++.Ar -r
++option of
++.Xr tcpdump 8 ,
++hopefully offline in case there are bugs in the packet parsing code of
++.Xr tcpdump 8 .
++.Pp
++.Nm
++closes and then re-opens the log file when it receives
++.Va SIGHUP ,
++permitting
++.Xr newsyslog 8
++to rotate logfiles automatically.
++.Va SIGALRM
++causes
++.Nm
++to flush the current logfile buffers to the disk, thus making the most
++recent logs available.
++The buffers are also flushed every
++.Ar delay
++seconds.
++.Pp
++If the log file contains data after a restart or a
++.Va SIGHUP ,
++new logs are appended to the existing file.
++If the existing log file was created with a different snaplen,
++.Nm
++temporarily uses the old snaplen to keep the log file consistent.
++.Pp
++The options are as follows:
++.Bl -tag -width Ds
++.It Fl d Ar delay
++Time in seconds to delay between automatic flushes of the file.
++This may be specified with a value between 5 and 3600 seconds.
++If not specified, the default is 60 seconds.
++.It Fl D
++Debugging mode.
++.Nm
++does not disassociate from the controlling terminal.
++.It Fl f Ar filename
++Log output filename.
++Default is
++.Pa /var/log/pflog .
++.It Fl s Ar snaplen
++Analyze at most the first
++.Ar snaplen
++bytes of data from each packet rather than the default of 96.
++The default of 96 is adequate for IP, ICMP, TCP, and UDP headers but may
++truncate protocol information for other protocols.
++Other file parsers may desire a higher snaplen.
++.It Ar expression
++selects which packets will be dumped, using the regular language of
++.Xr tcpdump 8 .
++.El
++.Sh EXAMPLES
++Log specific tcp packets to a different log file with a large snaplen
++(useful with a log-all rule to dump complete sessions)
++.Bd -literal -offset indent
++# pflogd -s 1600 -f suspicious.log port 80 and host evilhost
++.Ed
++.Pp
++Display binary logs:
++.Bd -literal -offset indent
++# tcpdump -n -e -ttt -r /var/log/pflog
++.Ed
++.Pp
++Display the logs in real time (this does not interfere with the
++operation of pflogd):
++.Bd -literal -offset indent
++# tcpdump -n -e -ttt -i pflog0
++.Ed
++.Pp
++Tcpdump has been extended to to be able to filter on the pfloghdr
++structure defined in net/if_pflog.h.  Tcpdump can restrict the output
++to packets logged on a specified interface, a rule number, a reason,
++a direction, an ip family or an action.
++.Bl -tag -width "reason match " -compact
++.It ip
++Address family equals IPv4.
++.It ip6
++Address family equals IPv6.
++.It ifname kue0
++Interface name equals "kue0"
++.It on kue0
++Interface name equals "kue0"
++.It rulenum 10
++Rule number equals 10.
++.It reason match
++Reason equals match.  Also accepts "bad-offset", "fragment", "short",
++"normalize" and "memory".
++.It action pass
++Action equals pass.  Also accepts "block".
++.It inbound
++The direction was inbound.
++.It outbound
++The direction was outbound.
++.El
++.Pp
++Display the logs in real time of inbound packets that were blocked on
++the wi0 interface:
++.Bd -literal -offset indent
++# tcpdump -n -e -ttt -i pflog0 inbound and action block and on wi0
++.Ed
++.Sh FILES
++.Bl -tag -width /var/run/pflogd.pid -compact
++.It Pa /var/run/pflogd.pid
++process ID of current
++.It Pa /var/log/pflog
++Default log file
++.El
++.Sh SEE ALSO
++.Xr pcap 3 ,
++.Xr pf 4 ,
++.Xr pf.conf 5 ,
++.Xr pflog 4 ,
++.Xr newsyslog 8 ,
++.Xr tcpdump 8
++.Sh AUTHORS
++Can Erkin Acar
++.Sh HISTORY
++The
++.Nm
++command appeared in
++.Ox 3.0 .
