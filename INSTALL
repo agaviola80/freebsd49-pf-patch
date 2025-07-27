@@ -193,7 +193,7 @@ Add it in the /etc/sysctl.conf.
 Install libpcap and tcpdump:
 ----------------------------
 # cd /home/freebsd/fbsd49-pf-patch/utilities
-# ls -lah utilities/
+# ls -lah
 total 836
 drwxr-xr-x  2 root  wheel    512B Jul 18 00:46 .
 drwxr-xr-x  6 root  wheel    512B Jul 18 11:16 ..
@@ -230,13 +230,13 @@ Copy pf.conf.sample configuration file to /etc directory:
 ---------------------------------------------------------
 # cd /home/freebsd/fbsd49-pf-patch
 # cp pf.conf.sample /etc/pf.conf
-# cat /etc/pf.conf
 
 The pf.conf.sample is a NAT behind NAT setup sample configuration
 file only used as reference guide to provide general idea on how 
 to construct the pf rules and content. You can modify it or construct
-your own pf.conf based on your actual network setup and network 
-cards used:
+your own pf.conf based on your actual network design setup. 
+
+# vi /etc/pf.conf
 
 For detailed information on pf configurations, see pf.conf(5).
 
