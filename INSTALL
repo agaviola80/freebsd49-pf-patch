@@ -8,7 +8,7 @@ Hardware specification requirements:
 ------------------------------------
 - Intel or AMD-based single core CPU (266-MHz or more)
 - 128MB RAM or more
-- 2GB disk space (for GENERIC kernel) or more
+- 4GB disk space (for GENERIC kernel) or more
 - 1x network interface card for a host node or 
   2x network interface cards for a router node
 
@@ -27,8 +27,37 @@ drwxr-xr-x  84 root  wheel  2048 Jul 17 22:59 sbin
 drwxr-xr-x  23 root  wheel   512 Jul 17 23:08 share
 drwxr-xr-x  49 root  wheel  1024 Jul 15 03:13 sys
 
-Prepare the pf patches
----------------------- 
+During install, create a user account "freebsd" in the /home directory.
+This will be used as source location for the patches. 
+
+Download the pf patches:
+------------------------
+https://github.com/user-attachments/files/21452029/fbsd49-pf-patch.tar.gz
+
+Download the compressed pf patches in your local machine (Windows, Linux or *BSDs)
+and perform file transfer to the fresh installed FreeBSD 4.9 system.
+File transfer application like SSH secure copy (SCP) is already available
+in Linux and *BSD systems. For Windows systems, 
+WinSCP (https://winscp.net/eng/index.php) is also available for download
+and install.
+
+For Linux/*BSDs using command-line interface (CLI):
+# scp fbsd49-pf-patch.tar.gz freebsd@<ipv4_address>:/home/freebsd 
+
+For Windows with WinSCP:
+Create a new session to FreeBSD 4.9 system and connect.
+Drag and drop the fbsd49-pf-patch.tar.gz using the graphical interface (GUI).
+
+Check the compressed patch file once transferred:  
+-------------------------------------------------
+# ls -lah /home/freebsd
+total 1922
+drwxr-xr-x  5 freebsd  freebsd    512B Jul 27 16:10 .
+drwxr-xr-x  3 root     wheel      512B Jul 27 20:31 ..
+-rw-r--r--  1 freebsd  freebsd    923K Jul 27 13:44 fbsd49-pf-patch.tar.gz
+
+Prepare and extract the pf patches:
+----------------------------------- 
 # tar zxvf fbsd49-pf-patch.tar.gz
 # cd fbsd49-pf-patch
 # ls -lah
@@ -67,24 +96,24 @@ drwxr-xr-x  5 root  wheel    512B Jul 16 01:30 ..
 Apply the patches to the kernel:
 --------------------------------
 # cd /usr/src
-# patch -p0 < fbsd49-pf-patch/kernel/sys-net.patch
-# patch -p0 < fbsd49-pf-patch/kernel/sys-netinet.patch
-# patch -p0 < fbsd49-pf-patch/kernel/sys-netinet6.patch
-# patch -p0 < fbsd49-pf-patch/kernel/sys-sys.patch
-# patch -p0 < fbsd49-pf-patch/kernel/sys-i386.patch
-# patch -p0 < fbsd49-pf-patch/kernel/sys-conf.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/kernel/sys-net.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/kernel/sys-netinet.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/kernel/sys-netinet6.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/kernel/sys-sys.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/kernel/sys-i386.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/kernel/sys-conf.patch
 
 Apply the patches to the userland:
 ----------------------------------
 # cd /usr/src
-# patch -p0 < fbsd49-pf-patch/userland/sbin.patch
-# patch -p0 < fbsd49-pf-patch/userland/share-man.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/userland/sbin.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/userland/share-man.patch
 
 # cd /usr/include
-# patch -p0 < fbsd49-pf-patch/userland/usr-include.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/userland/usr-include.patch
 
 # cd /dev
-# patch -p0 < fbsd49-pf-patch/userland/dev-makedev.patch
+# patch -p0 < /home/freebsd/fbsd49-pf-patch/userland/dev-makedev.patch
 
 Re-compile the kernel:
 ----------------------
@@ -95,7 +124,7 @@ Re-compile the kernel:
 
 # reboot
 
-Wait until the system completely boots after reboot were you can see the login prompt.
+Wait until the system completely boots were you can see the login prompt.
 Once login, perform the following:
 
 # uname -a
@@ -122,7 +151,10 @@ Install the pf userland utilities (pfctl, pflogd and authpf):
 
 # cd /usr/src/sbin/authpf
 # make && make install
+
 # reboot
+
+Initiate another reboot, wait and login.   
 
 Install the manpages:
 ---------------------
@@ -144,20 +176,23 @@ Install the manpages:
 
 Identify the type of node to setup (host or router)
 ---------------------------------------------------
-
 # sysctl -a | grep forwarding
-net.inet.ip.forwarding: 1
-net.inet6.ip6.forwarding: 1
+net.inet.ip.forwarding: 0 
+net.inet6.ip6.forwarding: 0 
 
-Enable IPv4 or IPv6 forwarding when you setup a FreeBSD system that acts 
+Enable IPv4 and IPv6 forwarding when you setup a FreeBSD system that acts 
 as a router node otherwise leave it as is when system acts as a host node.
 A router must have at least two (2) network interface cards.
 
-# echo "net.inet.ip.forwarding=1" > /etc/sysctl.conf
+Add it in the /etc/sysctl.conf.
+
+# echo "net.inet.ip.forwarding=1" >> /etc/sysctl.conf
 # echo "net.inet6.ip6.forwarding=1" >> /etc/sysctl.conf
+# cat /etc/sysctl.conf
 
 Install libpcap and tcpdump:
 ----------------------------
+# cd /home/freebsd/fbsd49-pf-patch/utilities
 # ls -lah utilities/
 total 836
 drwxr-xr-x  2 root  wheel    512B Jul 18 00:46 .
@@ -170,13 +205,14 @@ drwxr-xr-x  6 root  wheel    512B Jul 18 11:16 ..
 # cd libpcap-0.8.1
 # ./configure && make && make install
 
+# cd /home/freebsd/fbsd49-pf-patch/utilities
 # tar zxvf tcpdump-3.8.1-fbsd49.tar.gz -C /home/freebsd
 # cd /home/freebsd
 # cd tcpdump-3.8.1-fbsd49
 # ./configure && make && make install
 
-Bring up the pflog0 interface and initiate logging:
----------------------------------------------------
+Bring up the pflog0 interface and verify:
+-----------------------------------------
 # ifconfig pflog0
 pflog0: flags=0<> mtu 33216
 
@@ -184,28 +220,36 @@ pflog0: flags=0<> mtu 33216
 # ifconfig pflog
 pflog0: flags=41<UP,RUNNING> mtu 33216
 
-Verify incoming and outgoing packets of the pflog0 interface with tcpdump.
+Verify if tcpdump is listening to the pflog0 interface.
 
 # /usr/local/sbin/tcpdump -nettti pflog0
 
+Press CTRL+C to exit.
+ 
 Copy pf.conf.sample configuration file to /etc directory:
 ---------------------------------------------------------
-# cd fbsd49-pf-patch
+# cd /home/freebsd/fbsd49-pf-patch
 # cp pf.conf.sample /etc/pf.conf
+# cat /etc/pf.conf
 
-The pf.conf.sample is a NAT behind NAT setup sample configuration file only 
-used as reference guide to provide idea on how to construct the pf rulesets.
-
-Modify the file accordingly based on your actual network setup and network 
+The pf.conf.sample is a NAT behind NAT setup sample configuration
+file only used as reference guide to provide general idea on how 
+to construct the pf rules and content. You can modify it or construct
+your own pf.conf based on your actual network setup and network 
 cards used:
 
-# vi /etc/pf.conf
+For detailed information on pf configurations, see pf.conf(5).
 
-For information on pf configurations, see pf.conf(5).
+Create a device node pf in /dev directory:
+------------------------------------------
+# cd /dev
+# sh MAKEDEV pf
+# ls -lah /dev/pf
 
 Start pf and load the pf.conf file:
 -----------------------------------
-# pfctl -e -f pf.conf 
+# pfctl -e
+# pfctl -f /etc/pf.conf 
 
 Check the interface status and show all rulesets:
 ------------------------------------------------- 
@@ -222,3 +266,15 @@ Add a one line script below to enable pf during system startup:
 # vi /etc/rc.local
 /sbin/pfctl -e -f /etc/pf.conf
 /sbin/ifconfig pflog0 up
+
+# reboot
+
+Initiate another reboot, wait and login.   
+
+Check pf if enabled, the pf rules are loaded and the pf states are present.
+
+# pfctl -si
+# pfctl -sr
+# pfctl -ss
+
+That's all, thanks!
