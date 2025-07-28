@@ -66,7 +66,7 @@ pass in on { $int_if, $ext_if } proto icmp from any to $int_net keep state
 pass in on $int_if proto icmp from $int_net to { $int_ip, $ext_ip } keep state
 
 # allow icmp echo reply from internal network to dns server via fw internal interface
-pass in on $int_if proto icmp from $int_net to $dns_server keep state
+pass in on $int_if proto icmp from $int_net to $dns_proxy keep state
 
 # allow external dns proxy from external and internal fw interfaces and networks
 pass in on { $ext_if, $int_if } proto udp from $ext_int_net to $dns_proxy port 53 keep state
